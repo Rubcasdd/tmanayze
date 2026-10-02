@@ -1,0 +1,17 @@
+[project]
+name = "trackmania-ai-analyzer"
+version = "1.0.0"
+description = "Compare a Trackmania run to any ghost, corner by corner, with AI coaching."
+requires-python = ">=3.12"
+# Runtime dependencies only (this is what Vercel installs). Local development
+# also needs a server: see requirements.txt.
+dependencies = [
+    "fastapi>=0.115",
+    "python-multipart>=0.0.9",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+]
+
+[tool.vercel]
+# Tells Vercel where the FastAPI instance named `app` lives.
+entrypoint = "backend.main:app"

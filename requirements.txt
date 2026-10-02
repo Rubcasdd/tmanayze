@@ -1,0 +1,7 @@
+# Local development: pip install -r requirements.txt
+# (Vercel installs the runtime dependencies from pyproject.toml instead.)
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.9
+requests>=2.31
+python-dotenv>=1.0

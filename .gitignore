@@ -1,0 +1,13 @@
+# secrets — never commit these (only .env.example is meant to be shared)
+.env
+.env.*
+!.env.example
+
+# local state
+.venv/
+data/
+.vercel/
+__pycache__/
+*.pyc
+node_modules/
+_*/

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trackmania AI Analyzer</title>
+<meta name="description" content="Compare your Trackmania run to any ghost, corner by corner, and get AI coaching." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div class="bg-glow"></div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div class="brand">
+      <span class="brand-mark">▲</span>
+      <div>
+        <h1>Trackmania <span>AI</span> Analyzer</h1>
+        <p class="tagline">Search a driver, pick a map, race the world &mdash; then let AI tell you where the time went.</p>
+      </div>
+    </div>
+    <button id="settings-btn" class="ghost settings-btn" type="button" aria-expanded="false" aria-controls="settings-panel">⚙ Settings</button>
+  </div>
+</header>
+
+<main class="shell">
+
+  <section class="card" id="settings-panel" hidden>
+    <div class="card-head"><h2>Settings</h2></div>
+    <p class="hint" id="settings-server-note"></p>
+    <label class="field">
+      <span>NVIDIA NIM API key <em>(optional — used for AI analysis; stays in this browser)</em></span>
+      <input type="password" id="nim-key-input" placeholder="nvapi-…" autocomplete="off" />
+    </label>
+    <label class="field" id="access-code-field">
+      <span>Access code <em>(only if the site owner set one)</em></span>
+      <input type="password" id="access-code-input" autocomplete="off" />
+    </label>
+    <label class="field" id="admin-code-field" hidden>
+      <span>Admin code <em>(site owner only — skips the AI usage limits)</em></span>
+      <input type="password" id="admin-code-input" autocomplete="off" />
+    </label>
+    <div class="settings-actions">
+      <button id="settings-save" type="button">Save</button>
+      <button id="clear-data-btn" class="ghost danger" type="button">Delete my saved runs &amp; coach notes</button>
+      <span id="settings-status" class="status"></span>
+    </div>
+    <p class="hint">Your imported runs and coach notes are kept only in this browser (IndexedDB) — nothing is stored on the server.</p>
+  </section>
+
+  <!-- PLAYER -->
+  <section class="card" id="player-card">
+    <div class="card-head"><h2><span class="num">1</span> Find yourself</h2></div>
+    <div class="search-row">
+      <input type="text" id="player-search-input" placeholder="Trackmania username, e.g. Wirtual" autocomplete="off" />
+      <button id="player-search-btn" type="button">Search</button>
+    </div>
+    <div id="player-results" class="player-results" hidden></div>
+    <div id="player-profile" class="player-profile" hidden></div>
+  </section>
+
+  <!-- MAP FINDER -->
+  <section class="card" id="map-finder-card">
+    <div class="card-head"><h2><span class="num">2</span> Find a map</h2></div>
+    <div class="search-row">
+      <input type="text" id="map-search-input" placeholder="Map name, e.g. Chilly Reception" autocomplete="off" />
+      <button id="map-search-btn" type="button">Search</button>
+    </div>
+    <div id="library-row" class="library-row" hidden></div>
+    <div id="map-grid" class="map-grid"></div>
+  </section>
+
+  <!-- SELECTED MAP -->
+  <section class="card" id="map-detail-card" hidden>
+    <div class="card-head"><h2><span class="num">3</span> <span id="map-detail-title">Map</span></h2></div>
+    <div class="map-detail-body">
+      <img id="map-detail-thumb" class="map-detail-thumb" alt="" />
+      <div class="map-detail-meta">
+        <div id="map-detail-tags" class="tag-row"></div>
+        <p class="hint" id="map-detail-authors"></p>
+        <div class="upload-inline">
+          <input type="file" id="file-input" accept=".gbx,.Gbx" multiple />
+          <select id="upload-kind">
+            <option value="run">My run</option>
+            <option value="reference">Reference ghost</option>
+          </select>
+          <button id="upload-btn" type="button">Upload replay / ghost</button>
+          <span id="upload-status" class="status"></span>
+        </div>
+        <p class="hint">Your own runs: in Trackmania, replays are usually saved under Documents → Trackmania → Replays → Autosaves (<code>.Replay.Gbx</code>). Or import one from the tables below.</p>
+      </div>
+    </div>
+
+    <h3 class="subhead">World leaderboard</h3>
+    <div class="table-wrap">
+      <table id="leaderboard-table">
+        <thead><tr><th>#</th><th>Player</th><th>Time</th><th></th></tr></thead>
+        <tbody id="leaderboard-tbody"></tbody>
+      </table>
+    </div>
+
+    <h3 class="subhead">Community replays (ManiaExchange)</h3>
+    <div class="table-wrap">
+      <table id="mx-replays-table">
+        <thead><tr><th>Player</th><th>Time</th><th></th></tr></thead>
+        <tbody id="mx-replays-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- RUNS + COMPARE -->
+  <section class="card" id="compare-section" hidden>
+    <div class="card-head"><h2><span class="num">4</span> Compare</h2></div>
+    <div class="table-wrap">
+      <table id="runs-table">
+        <thead><tr><th>You</th><th>Ghost</th><th>Player</th><th>Time</th><th>Kind / source</th><th></th></tr></thead>
+        <tbody id="runs-tbody"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="runs-hint">Pick one run as <b>You</b>, then toggle <b>Ghost</b> on for as many references as you like — they're overlaid on every chart. The best of each is picked automatically. Greyed rows have no per-tick telemetry and compare by finish time only.</p>
+
+    <div id="compare-panel" hidden>
+      <div class="notice" id="alignment-warning" hidden></div>
+      <div class="stats-row" id="stats-row"></div>
+      <p class="hint" id="chart-empty-note" hidden>None of the selected ghosts have per-tick telemetry, so there's nothing to chart — the stats above and the AI analysis still work from finish times.</p>
+
+      <div id="focus-area" hidden>
+        <h3 class="subhead">What to focus on <span class="hint">ranked by time at stake — click one to jump to that stretch</span></h3>
+        <div id="focus-cards" class="focus-cards"></div>
+        <div id="strength-cards" class="focus-cards strengths"></div>
+      </div>
+
+      <div id="charts-area">
+        <div class="chart-card">
+          <h3 class="subhead">Speed along the track <span class="hint">km/h · shaded bands = corners (red: you lose time, green: you gain)</span></h3>
+          <div class="chart-box"><canvas id="speed-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3 class="subhead">Speed difference <span class="hint">km/h, you minus the ghost — above 0 you are faster</span></h3>
+          <div class="chart-box short"><canvas id="speed-diff-chart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3 class="subhead">Gap to the ghost <span class="hint">above 0 = you are behind</span></h3>
+          <div class="chart-box short"><canvas id="delta-chart"></canvas></div>
+        </div>
+
+        <h3 class="subhead">Track sections <span class="hint">each stretch in detail: speed and steering, you vs the ghost</span></h3>
+        <div id="sections-grid" class="sections-grid"></div>
+
+        <h3 class="subhead">Corner breakdown <span class="hint" id="corner-breakdown-sub"></span></h3>
+        <div class="table-wrap">
+          <table id="corner-table">
+            <thead><tr><th>#</th><th>Turn</th><th>Distance</th><th>Time impact</th><th>Speed in / min / out (you vs ghost)</th><th>Braking</th><th>Steering (avg · reversals)</th></tr></thead>
+            <tbody id="corner-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="analyze-row">
+        <button id="analyze-btn" type="button">✦ Analyze with AI</button>
+        <label class="depth-pick">Detail
+          <select id="depth-select"><option value="detailed">Detailed</option></select>
+        </label>
+        <span id="analyze-status" class="status"></span>
+      </div>
+      <p class="hint" id="quota-note" hidden></p>
+      <p class="hint" id="memory-note" hidden></p>
+      <div id="analyze-report" class="report"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">Map data &amp; replays via ManiaExchange · leaderboards &amp; player data via trackmania.io · analysis via NVIDIA NIM</footer>
+
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
