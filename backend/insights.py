@@ -28,21 +28,29 @@ def map_context(map_uid: str) -> dict | None:
     }
 
 
+def _entry(t: dict) -> dict:
+    player = t.get("player", {})
+    return {
+        "position": t.get("position"),
+        "player_name": player.get("name"),
+        "account_id": player.get("id"),
+        "zone": (player.get("zone") or {}).get("name"),
+        "time_ms": t.get("time"),
+        "ghost_url": t.get("url"),
+    }
+
+
 def world_leaderboard(map_uid: str, length: int = LEADERBOARD_SCAN_LENGTH) -> list[dict]:
     try:
         tops = tmio_client.get_map_leaderboard(map_uid, length=length)
     except tmio_client.TmioError:
         return []
-    out = []
-    for t in tops:
-        out.append({
-            "position": t.get("position"),
-            "player_name": t.get("player", {}).get("name"),
-            "account_id": t.get("player", {}).get("id"),
-            "time_ms": t.get("time"),
-            "ghost_url": t.get("url"),
-        })
-    return out
+    return [_entry(t) for t in tops]
+
+
+def leaderboard_page(map_uid: str, offset: int, length: int) -> dict:
+    tops, total = tmio_client.get_map_leaderboard_page(map_uid, length=length, offset=offset)
+    return {"total": total, "offset": offset, "entries": [_entry(t) for t in tops]}
 
 
 def player_world_position(leaderboard: list[dict], race_time_ms: int | None) -> dict | None:

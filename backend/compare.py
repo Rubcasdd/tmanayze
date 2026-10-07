@@ -20,8 +20,8 @@ import math
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 
-DOWNSAMPLE_POINTS = 160
-SECTION_POINTS = 120
+DOWNSAMPLE_POINTS = 700
+SECTION_POINTS = 320
 SECTION_TARGET_M = 450.0
 
 # Corner detection. A corner is a stretch of the *reference's own path* where
@@ -313,6 +313,9 @@ def _public_point(p: dict) -> dict:
         "subject_gas": _r(p["subject_gas"], 2),
         "subject_brake": _r(p["subject_brake"], 2),
         "reference_brake": _r(p["reference_brake"], 2),
+        "reference_gas": _r(p["reference_gas"], 2),
+        "x": _r(p["x"], 1),
+        "z": _r(p["z"], 1),
     }
 
 
@@ -479,6 +482,9 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
             "subject_gas": s["gas"],
             "subject_brake": s["brake"],
             "reference_brake": r["brake"],
+            "reference_gas": r["gas"],
+            "x": s["x"],
+            "z": s["z"],
         })
 
     segments = _detect_corner_segments(ref_samples)

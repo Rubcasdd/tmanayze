@@ -6,6 +6,15 @@ on the same graphs, split into track sections**, a corner-by-corner breakdown
 (time gained/lost, entry/min/exit speed, braking point, steering), and an AI
 coach that works from those measurements.
 
+- **My maps front page:** add your `Documents\Trackmania\Replays\Autosaves` folder
+  (drop it on the page) and every map you've finished appears with your best time.
+  Pick one to open it.
+- **Full-width analysis:** large graphs that share one crosshair (speed, time gap,
+  speed difference, steering, brake/throttle), a colour-coded track map, per-section
+  charts, and a corner table. Every graph has an Expand button, and the workspace can
+  go full screen.
+- **Full world leaderboard:** page through every player, jump to a rank, or find where
+  your own time sits (the board is searched by time, so it works on any map).
 - **What to focus on:** ranked, titled focus areas ("Carry more speed through the
   hairpin at 1882–2032 m") with the measured evidence and the time at stake, plus
   the stretches you're already good at.
