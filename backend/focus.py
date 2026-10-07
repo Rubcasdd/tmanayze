@@ -23,7 +23,16 @@ def _speed_margin(ref_speed: float) -> float:
 
 
 def _shape(corner: dict) -> str:
-    return "hairpin" if corner["turn_deg"] >= 120 else f"{corner['direction']} turn"
+    """A name that fits the bend: long, shallow ones are sweepers, not 'turns'."""
+    deg = corner["turn_deg"]
+    span = corner["distance_end"] - corner["distance_start"]
+    if deg >= 120:
+        return "hairpin"
+    if deg < 25:
+        return f"gentle {corner['direction']} bend"
+    if span >= 60 and deg < 90:
+        return f"{corner['direction']} sweeper"
+    return f"{corner['direction']} turn"
 
 
 def _before(metres: float) -> str:
