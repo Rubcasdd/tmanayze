@@ -116,6 +116,30 @@ const Store = (() => {
     return [...maps.values()].sort((a, b) => b.count - a.count);
   }
 
+  // One entry per map with what the front page needs: how many of your own runs
+  // and ghosts there are, your best time, and when something was last added.
+  async function listMaps() {
+    const db = await open();
+    const all = db ? await wrap(db.transaction("runmeta").objectStore("runmeta").getAll()) : [...mem.meta.values()];
+    const maps = new Map();
+    for (const m of all) {
+      const e = maps.get(m.map_uid) || {
+        map_uid: m.map_uid, map_name: null, own: 0, refs: 0, best_own_ms: null, last_at: 0, telemetry: 0,
+      };
+      if (m.kind === "run") {
+        e.own += 1;
+        if (m.race_time_ms != null && (e.best_own_ms === null || m.race_time_ms < e.best_own_ms)) e.best_own_ms = m.race_time_ms;
+      } else {
+        e.refs += 1;
+      }
+      if (m.telemetry_available) e.telemetry += 1;
+      e.map_name = e.map_name || m.map_name;
+      e.last_at = Math.max(e.last_at, m.uploaded_at || 0);
+      maps.set(m.map_uid, e);
+    }
+    return [...maps.values()];
+  }
+
   async function getMemory(key) {
     const db = await open();
     if (!db) return mem.memory.get(key) || null;
@@ -150,5 +174,5 @@ const Store = (() => {
     await done(tx);
   }
 
-  return { putRuns, listRunSummaries, getRuns, hasRun, deleteRun, listLibrary, getMemory, putMemory, deleteMemory, clearAll };
+  return { putRuns, listRunSummaries, getRuns, hasRun, deleteRun, listLibrary, listMaps, getMemory, putMemory, deleteMemory, clearAll };
 })();

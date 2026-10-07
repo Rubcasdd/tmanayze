@@ -3,179 +3,326 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Trackmania AI Analyzer</title>
-<meta name="description" content="Compare your Trackmania run to any ghost, corner by corner, and get AI coaching." />
+<title>Trackmania Analyzer</title>
+<meta name="description" content="Pick a map you've finished and see, stretch by stretch, where your run loses time to a ghost." />
+<meta name="color-scheme" content="dark" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<div class="bg-glow"></div>
-
-<header class="hero">
-  <div class="hero-inner">
-    <div class="brand">
-      <span class="brand-mark">▲</span>
-      <div>
-        <h1>Trackmania <span>AI</span> Analyzer</h1>
-        <p class="tagline">Search a driver, pick a map, race the world &mdash; then let AI tell you where the time went.</p>
-      </div>
-    </div>
-    <button id="settings-btn" class="ghost settings-btn" type="button" aria-expanded="false" aria-controls="settings-panel">⚙ Settings</button>
-  </div>
+<header class="topbar">
+  <a class="brand" href="#/" aria-label="Trackmania Analyzer, home">
+    <span class="brand-flag" aria-hidden="true"></span>
+    <span class="brand-name">Trackmania Analyzer</span>
+  </a>
+  <nav class="topnav" aria-label="Main">
+    <a href="#/" id="nav-maps" class="nav-link">My maps</a>
+    <span class="crumb" id="crumb" hidden></span>
+  </nav>
+  <button id="settings-btn" class="btn quiet" type="button">Settings</button>
 </header>
 
-<main class="shell">
+<!-- Everything below is swapped by the router -->
+<main id="view-home" class="page" hidden>
+  <div class="home-grid">
+    <section class="home-main">
+      <div class="page-head">
+        <div>
+          <h1>My maps</h1>
+          <p class="lede" id="home-summary">Maps you've finished, built from the replays you add.</p>
+        </div>
+      </div>
 
-  <section class="card" id="settings-panel" hidden>
-    <div class="card-head"><h2>Settings</h2></div>
+      <div class="dropzone" id="dropzone">
+        <div class="dz-text">
+          <strong>Add your replays.</strong>
+          <span>Drop <code>.Replay.Gbx</code> files or a whole folder here, or pick them. Trackmania keeps every personal best in
+          <code>Documents\Trackmania\Replays\Autosaves</code> &mdash; add that folder and every map you've finished shows up below.</span>
+        </div>
+        <div class="dz-actions">
+          <button class="btn primary" id="pick-folder" type="button">Add a folder</button>
+          <button class="btn" id="pick-files" type="button">Add files</button>
+          <label class="inline-select">Treat as
+            <select id="import-kind">
+              <option value="run">my runs</option>
+              <option value="reference">ghosts to study</option>
+            </select>
+          </label>
+        </div>
+        <input type="file" id="folder-input" webkitdirectory directory multiple hidden />
+        <input type="file" id="files-input" accept=".gbx,.Gbx,.GBX" multiple hidden />
+        <div class="progress" id="import-progress" hidden>
+          <div class="progress-bar"><span id="import-bar"></span></div>
+          <div class="progress-text" id="import-text"></div>
+        </div>
+        <div class="import-report" id="import-report" hidden></div>
+      </div>
+
+      <div class="toolbar" id="library-toolbar" hidden>
+        <input type="search" id="library-filter" placeholder="Filter your maps" autocomplete="off" aria-label="Filter your maps" />
+        <label class="inline-select">Sort
+          <select id="library-sort">
+            <option value="recent">Recently added</option>
+            <option value="name">Name</option>
+            <option value="runs">Most runs</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="finished-grid" class="map-grid"></div>
+
+      <div id="studying-block" hidden>
+        <h2 class="section-title">Studying</h2>
+        <p class="hint">Maps where you only have ghosts so far. Add your own run to compare.</p>
+        <div id="studying-grid" class="map-grid compact"></div>
+      </div>
+    </section>
+
+    <aside class="home-side">
+      <section class="panel" id="driver-panel">
+        <h2 class="panel-title">Driver</h2>
+        <p class="hint">Look yourself up to see your zone rankings and to spot your own times on leaderboards.</p>
+        <form class="search-row" id="player-form">
+          <input type="search" id="player-search-input" placeholder="Trackmania username" autocomplete="off" aria-label="Trackmania username" />
+          <button class="btn" type="submit">Find</button>
+        </form>
+        <div id="player-results" class="pick-list" hidden></div>
+        <div id="player-profile" class="player-profile" hidden></div>
+      </section>
+
+      <section class="panel" id="discover-panel">
+        <h2 class="panel-title">Find any map</h2>
+        <p class="hint">Search ManiaExchange for a map you haven't added yet and race a ghost on it.</p>
+        <form class="search-row" id="map-form">
+          <input type="search" id="map-search-input" placeholder="Map name" autocomplete="off" aria-label="Map name" />
+          <button class="btn" type="submit">Search</button>
+        </form>
+        <div id="map-results" class="result-list"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<main id="view-map" class="page wide" hidden>
+  <div class="map-head" id="map-head">
+    <img id="map-thumb" class="map-thumb" alt="" hidden />
+    <div class="map-head-main">
+      <a href="#/" class="back-link">&larr; My maps</a>
+      <h1 id="map-title">Map</h1>
+      <div class="meta-line" id="map-meta"></div>
+    </div>
+    <dl class="map-kpis" id="map-kpis"></dl>
+  </div>
+
+  <div class="map-layout">
+    <aside class="rail" id="rail">
+      <section class="rail-block">
+        <h2 class="panel-title">Runs on this map</h2>
+        <p class="hint" id="runs-hint">Choose <b>You</b> once, then switch <b>Ghost</b> on for each run you want to race. Dimmed runs have no telemetry, so only finish times compare.</p>
+        <div id="runs-list" class="runs-list"></div>
+      </section>
+
+      <section class="rail-block">
+        <div class="tabs small" role="tablist" aria-label="Add a ghost">
+          <button role="tab" class="tab on" data-add="world">World top</button>
+          <button role="tab" class="tab" data-add="mx">Community</button>
+          <button role="tab" class="tab" data-add="file">Upload</button>
+        </div>
+        <div class="add-pane" data-pane="world">
+          <div id="leaderboard-list" class="board"></div>
+          <button class="btn quiet" id="open-board" type="button">See the whole leaderboard &rarr;</button>
+        </div>
+        <div class="add-pane" data-pane="mx" hidden>
+          <div id="mx-list" class="board"></div>
+        </div>
+        <div class="add-pane" data-pane="file" hidden>
+          <p class="hint">Any <code>.Gbx</code> replay or ghost for this map.</p>
+          <input type="file" id="file-input" accept=".gbx,.Gbx,.GBX" multiple />
+          <div class="row-gap">
+            <select id="upload-kind"><option value="run">My run</option><option value="reference">Ghost</option></select>
+            <button class="btn" id="upload-btn" type="button">Upload</button>
+          </div>
+          <div id="upload-status" class="status"></div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="workspace" id="workspace">
+      <div class="ws-bar">
+        <div class="tabs" role="tablist" aria-label="Views">
+          <button role="tab" class="tab on" data-tab="overview">Overview</button>
+          <button role="tab" class="tab" data-tab="sections">Sections</button>
+          <button role="tab" class="tab" data-tab="corners">Corners</button>
+          <button role="tab" class="tab" data-tab="coach">Coach</button>
+          <button role="tab" class="tab" data-tab="board">Leaderboard</button>
+        </div>
+        <div class="ws-vs" id="ws-vs"></div>
+        <button class="btn quiet" id="wide-btn" type="button" title="Hide the run list to give the graphs the full width">Hide run list</button>
+        <button class="btn quiet" id="fs-btn" type="button" title="Use the whole screen for the analysis">Full screen</button>
+      </div>
+
+      <div id="ws-body">
+        <div class="notice" id="alignment-warning" hidden></div>
+
+        <!-- OVERVIEW -->
+        <div class="view" data-view="overview">
+          <div class="ws-empty" id="ws-empty" hidden></div>
+          <div id="overview-body">
+          <div class="stats" id="stats-row"></div>
+
+          <div id="focus-area" hidden>
+            <div class="block-head">
+              <h2 class="section-title">Where the time is</h2>
+              <span class="hint">Biggest losses first. Select one to see it on the track and charts.</span>
+            </div>
+            <div id="focus-cards" class="focus-grid"></div>
+            <div id="strength-cards" class="focus-grid strengths"></div>
+          </div>
+
+          <div id="lap-area">
+            <div class="block-head">
+              <h2 class="section-title">The whole lap</h2>
+              <span class="hint">All graphs share one distance axis. Hover any of them, or the track, to read both runs at that exact spot.</span>
+            </div>
+            <div class="highlight-chip" id="highlight-chip" hidden></div>
+            <div class="readout" id="readout"></div>
+            <div class="lap-grid">
+              <div class="map-card" id="trackmap-card">
+                <div class="plot-head">
+                  <h3>Track</h3>
+                  <div class="seg" id="map-mode" role="group" aria-label="Colour the track by">
+                    <button type="button" class="on" data-mode="time">Time</button>
+                    <button type="button" data-mode="speed">Speed</button>
+                  </div>
+                </div>
+                <canvas id="trackmap"></canvas>
+                <div class="map-legend" id="map-legend"></div>
+              </div>
+              <div class="plots" id="lap-plots"></div>
+            </div>
+          </div>
+          <p class="hint" id="chart-empty-note" hidden>None of the selected ghosts have per-tick telemetry, so there's nothing to chart. The numbers above and the coach still work from finish times.</p>
+          </div>
+        </div>
+
+        <!-- SECTIONS -->
+        <div class="view" data-view="sections" hidden>
+          <div class="block-head">
+            <h2 class="section-title">Section by section</h2>
+            <span class="hint">The lap cut into equal stretches, each with speed and steering for you and the ghost.</span>
+          </div>
+          <div class="section-nav" id="section-nav"></div>
+          <div class="legend-row" id="sections-legend"></div>
+          <div id="sections-grid" class="sections-grid"></div>
+        </div>
+
+        <!-- CORNERS -->
+        <div class="view" data-view="corners" hidden>
+          <div class="block-head">
+            <h2 class="section-title">Corner by corner</h2>
+            <span class="hint" id="corner-breakdown-sub"></span>
+          </div>
+          <div class="table-wrap">
+            <table id="corner-table" class="data">
+              <thead><tr><th>#</th><th>Turn</th><th>Where</th><th>Time</th><th>Speed in / min / out</th><th>Braking</th><th>Steering</th><th></th></tr></thead>
+              <tbody id="corner-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- COACH -->
+        <div class="view" data-view="coach" hidden>
+          <div class="coach-head">
+            <div>
+              <h2 class="section-title">Coach</h2>
+              <p class="hint">Reads the same numbers you see here and writes up what to change, in order of how much time it's worth.</p>
+            </div>
+            <div class="analyze-row">
+              <label class="inline-select">Detail
+                <select id="depth-select"><option value="detailed">Detailed</option></select>
+              </label>
+              <button id="analyze-btn" class="btn primary" type="button">Write my coaching report</button>
+            </div>
+          </div>
+          <div class="status" id="analyze-status"></div>
+          <p class="hint" id="quota-note" hidden></p>
+          <p class="hint" id="memory-note" hidden></p>
+          <article id="analyze-report" class="report"></article>
+        </div>
+
+        <!-- LEADERBOARD -->
+        <div class="view" data-view="board" hidden>
+          <div class="block-head">
+            <h2 class="section-title">World leaderboard</h2>
+            <span class="hint" id="board-count"></span>
+          </div>
+          <div class="board-tools">
+            <div class="bt-group">
+              <button class="btn" id="board-prev" type="button">&larr; Prev</button>
+              <span class="bt-page">Page <input type="text" inputmode="numeric" id="board-page" size="4" aria-label="Page number" /> <span id="board-pages"></span></span>
+              <button class="btn" id="board-next" type="button">Next &rarr;</button>
+            </div>
+            <form class="bt-group" id="board-rank-form">
+              <label class="inline-select">Go to rank <input type="text" inputmode="numeric" id="board-rank" size="7" placeholder="e.g. 1500" /></label>
+              <button class="btn" type="submit">Go</button>
+            </form>
+            <form class="bt-group" id="board-time-form">
+              <label class="inline-select">Find a time <input type="text" id="board-time" size="9" placeholder="m:ss.mmm" /></label>
+              <button class="btn" type="submit">Find</button>
+              <button class="btn quiet" id="board-mine" type="button" hidden>My best</button>
+            </form>
+            <label class="bt-group"><input type="search" id="board-filter" placeholder="Filter this page by name" aria-label="Filter this page by name" /></label>
+          </div>
+          <div class="status" id="board-status"></div>
+          <div class="table-wrap">
+            <table class="data" id="board-table">
+              <thead><tr><th>#</th><th>Player</th><th>Zone</th><th>Time</th><th>To #1</th><th>To you</th><th></th></tr></thead>
+              <tbody id="board-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<dialog id="settings-dialog" class="dialog">
+  <form method="dialog" class="dialog-body" id="settings-form">
+    <div class="dialog-head"><h2>Settings</h2><button class="btn quiet" value="close" aria-label="Close">Close</button></div>
     <p class="hint" id="settings-server-note"></p>
     <label class="field">
-      <span>NVIDIA NIM API key <em>(optional — used for AI analysis; stays in this browser)</em></span>
+      <span>NVIDIA NIM API key <em>optional &mdash; used for the coach; stays in this browser</em></span>
       <input type="password" id="nim-key-input" placeholder="nvapi-…" autocomplete="off" />
     </label>
     <label class="field" id="access-code-field">
-      <span>Access code <em>(only if the site owner set one)</em></span>
+      <span>Access code <em>only if the site owner set one</em></span>
       <input type="password" id="access-code-input" autocomplete="off" />
     </label>
     <label class="field" id="admin-code-field" hidden>
-      <span>Admin code <em>(site owner only — skips the AI usage limits)</em></span>
+      <span>Admin code <em>site owner only &mdash; skips the coach usage limits</em></span>
       <input type="password" id="admin-code-input" autocomplete="off" />
     </label>
     <div class="settings-actions">
-      <button id="settings-save" type="button">Save</button>
-      <button id="clear-data-btn" class="ghost danger" type="button">Delete my saved runs &amp; coach notes</button>
+      <button class="btn primary" id="settings-save" type="button">Save</button>
+      <button class="btn quiet danger" id="clear-data-btn" type="button">Delete my saved runs &amp; coach notes</button>
       <span id="settings-status" class="status"></span>
     </div>
-    <p class="hint">Your imported runs and coach notes are kept only in this browser (IndexedDB) — nothing is stored on the server.</p>
-  </section>
+    <p class="hint">Your runs and coach notes live only in this browser (IndexedDB). The server keeps nothing.</p>
+  </form>
+</dialog>
 
-  <!-- PLAYER -->
-  <section class="card" id="player-card">
-    <div class="card-head"><h2><span class="num">1</span> Find yourself</h2></div>
-    <div class="search-row">
-      <input type="text" id="player-search-input" placeholder="Trackmania username, e.g. Wirtual" autocomplete="off" />
-      <button id="player-search-btn" type="button">Search</button>
-    </div>
-    <div id="player-results" class="player-results" hidden></div>
-    <div id="player-profile" class="player-profile" hidden></div>
-  </section>
+<dialog id="expand-dialog" class="dialog big">
+  <div class="dialog-body">
+    <div class="dialog-head"><h2 id="expand-title"></h2><button class="btn quiet" id="expand-close" type="button">Close</button></div>
+    <div class="expand-box"><canvas id="expand-canvas"></canvas></div>
+  </div>
+</dialog>
 
-  <!-- MAP FINDER -->
-  <section class="card" id="map-finder-card">
-    <div class="card-head"><h2><span class="num">2</span> Find a map</h2></div>
-    <div class="search-row">
-      <input type="text" id="map-search-input" placeholder="Map name, e.g. Chilly Reception" autocomplete="off" />
-      <button id="map-search-btn" type="button">Search</button>
-    </div>
-    <div id="library-row" class="library-row" hidden></div>
-    <div id="map-grid" class="map-grid"></div>
-  </section>
-
-  <!-- SELECTED MAP -->
-  <section class="card" id="map-detail-card" hidden>
-    <div class="card-head"><h2><span class="num">3</span> <span id="map-detail-title">Map</span></h2></div>
-    <div class="map-detail-body">
-      <img id="map-detail-thumb" class="map-detail-thumb" alt="" />
-      <div class="map-detail-meta">
-        <div id="map-detail-tags" class="tag-row"></div>
-        <p class="hint" id="map-detail-authors"></p>
-        <div class="upload-inline">
-          <input type="file" id="file-input" accept=".gbx,.Gbx" multiple />
-          <select id="upload-kind">
-            <option value="run">My run</option>
-            <option value="reference">Reference ghost</option>
-          </select>
-          <button id="upload-btn" type="button">Upload replay / ghost</button>
-          <span id="upload-status" class="status"></span>
-        </div>
-        <p class="hint">Your own runs: in Trackmania, replays are usually saved under Documents → Trackmania → Replays → Autosaves (<code>.Replay.Gbx</code>). Or import one from the tables below.</p>
-      </div>
-    </div>
-
-    <h3 class="subhead">World leaderboard</h3>
-    <div class="table-wrap">
-      <table id="leaderboard-table">
-        <thead><tr><th>#</th><th>Player</th><th>Time</th><th></th></tr></thead>
-        <tbody id="leaderboard-tbody"></tbody>
-      </table>
-    </div>
-
-    <h3 class="subhead">Community replays (ManiaExchange)</h3>
-    <div class="table-wrap">
-      <table id="mx-replays-table">
-        <thead><tr><th>Player</th><th>Time</th><th></th></tr></thead>
-        <tbody id="mx-replays-tbody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- RUNS + COMPARE -->
-  <section class="card" id="compare-section" hidden>
-    <div class="card-head"><h2><span class="num">4</span> Compare</h2></div>
-    <div class="table-wrap">
-      <table id="runs-table">
-        <thead><tr><th>You</th><th>Ghost</th><th>Player</th><th>Time</th><th>Kind / source</th><th></th></tr></thead>
-        <tbody id="runs-tbody"></tbody>
-      </table>
-    </div>
-    <p class="hint" id="runs-hint">Pick one run as <b>You</b>, then toggle <b>Ghost</b> on for as many references as you like — they're overlaid on every chart. The best of each is picked automatically. Greyed rows have no per-tick telemetry and compare by finish time only.</p>
-
-    <div id="compare-panel" hidden>
-      <div class="notice" id="alignment-warning" hidden></div>
-      <div class="stats-row" id="stats-row"></div>
-      <p class="hint" id="chart-empty-note" hidden>None of the selected ghosts have per-tick telemetry, so there's nothing to chart — the stats above and the AI analysis still work from finish times.</p>
-
-      <div id="focus-area" hidden>
-        <h3 class="subhead">What to focus on <span class="hint">ranked by time at stake — click one to jump to that stretch</span></h3>
-        <div id="focus-cards" class="focus-cards"></div>
-        <div id="strength-cards" class="focus-cards strengths"></div>
-      </div>
-
-      <div id="charts-area">
-        <div class="chart-card">
-          <h3 class="subhead">Speed along the track <span class="hint">km/h · shaded bands = corners (red: you lose time, green: you gain)</span></h3>
-          <div class="chart-box"><canvas id="speed-chart"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <h3 class="subhead">Speed difference <span class="hint">km/h, you minus the ghost — above 0 you are faster</span></h3>
-          <div class="chart-box short"><canvas id="speed-diff-chart"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <h3 class="subhead">Gap to the ghost <span class="hint">above 0 = you are behind</span></h3>
-          <div class="chart-box short"><canvas id="delta-chart"></canvas></div>
-        </div>
-
-        <h3 class="subhead">Track sections <span class="hint">each stretch in detail: speed and steering, you vs the ghost</span></h3>
-        <div id="sections-grid" class="sections-grid"></div>
-
-        <h3 class="subhead">Corner breakdown <span class="hint" id="corner-breakdown-sub"></span></h3>
-        <div class="table-wrap">
-          <table id="corner-table">
-            <thead><tr><th>#</th><th>Turn</th><th>Distance</th><th>Time impact</th><th>Speed in / min / out (you vs ghost)</th><th>Braking</th><th>Steering (avg · reversals)</th></tr></thead>
-            <tbody id="corner-tbody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="analyze-row">
-        <button id="analyze-btn" type="button">✦ Analyze with AI</button>
-        <label class="depth-pick">Detail
-          <select id="depth-select"><option value="detailed">Detailed</option></select>
-        </label>
-        <span id="analyze-status" class="status"></span>
-      </div>
-      <p class="hint" id="quota-note" hidden></p>
-      <p class="hint" id="memory-note" hidden></p>
-      <div id="analyze-report" class="report"></div>
-    </div>
-  </section>
-
-</main>
-
-<footer class="foot">Map data &amp; replays via ManiaExchange · leaderboards &amp; player data via trackmania.io · analysis via NVIDIA NIM</footer>
+<footer class="foot">Map data and replays from ManiaExchange · leaderboards and players from trackmania.io · coaching by NVIDIA NIM</footer>
 
 <script src="store.js"></script>
 <script src="app.js"></script>

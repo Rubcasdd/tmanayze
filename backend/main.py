@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -197,7 +198,7 @@ def _run_record(
         raise HTTPException(400, f"'{filename}' has an unexpected map id") from None
 
     return {
-        "id": uuid.uuid4().hex[:12],
+        "id": hashlib.sha1(data + kind.encode()).hexdigest()[:12],
         "map_uid": map_uid,
         "map_name": parsed.map_name,
         "player_nickname": parsed.player_nickname or nickname_hint,
@@ -434,6 +435,31 @@ def mx_search(name: str | None = None, tag: str | None = None, count: int = 24):
         raise HTTPException(502, str(e)) from e
 
 
+_map_info_cache: dict[str, dict | None] = {}
+
+
+@app.get("/api/mx/map-info/{map_uid}")
+def mx_map_info(map_uid: str):
+    """Name, thumbnail, authors and tags only (no replay list) — cheap enough to
+    ask for every map on the front page."""
+    try:
+        net.valid_map_uid(map_uid)
+    except ValueError:
+        raise HTTPException(400, "invalid map uid") from None
+    if map_uid not in _map_info_cache:
+        try:
+            m = mx_client.get_map_by_uid(map_uid)
+        except mx_client.MxError as e:
+            raise HTTPException(502, str(e)) from e
+        _map_info_cache[map_uid] = _mx_map_summary(m) if m else None
+        if len(_map_info_cache) > 2000:
+            _map_info_cache.pop(next(iter(_map_info_cache)))
+    info = _map_info_cache[map_uid]
+    if info is None:
+        raise HTTPException(404, "map not found on ManiaExchange")
+    return info
+
+
 @app.get("/api/mx/maps/{map_uid}")
 def mx_map_detail(map_uid: str):
     try:
@@ -494,12 +520,33 @@ def tmio_player_profile(account_id: str):
 
 
 @app.get("/api/tmio/maps/{map_uid}/leaderboard")
-def tmio_leaderboard(map_uid: str, length: int = 20):
+def tmio_leaderboard(map_uid: str, length: int = 20, offset: int = 0):
+    """One page of the world leaderboard: {total, offset, entries}."""
     try:
         net.valid_map_uid(map_uid)
     except ValueError:
         raise HTTPException(400, "invalid map uid") from None
-    return insights_mod.world_leaderboard(map_uid, length=length)
+    length = max(1, min(length, 100))
+    offset = max(0, min(offset, 1_000_000))
+    try:
+        return insights_mod.leaderboard_page(map_uid, offset, length)
+    except tmio_client.TmioError as e:
+        raise HTTPException(502, str(e)) from e
+
+
+@app.get("/api/tmio/maps/{map_uid}/locate")
+def tmio_locate(map_uid: str, time_ms: int):
+    """Which leaderboard page holds this finish time (binary search by time)."""
+    try:
+        net.valid_map_uid(map_uid)
+    except ValueError:
+        raise HTTPException(400, "invalid map uid") from None
+    if not 0 < time_ms < 100_000_000:
+        raise HTTPException(400, "time_ms out of range")
+    try:
+        return tmio_client.locate_time(map_uid, time_ms)
+    except tmio_client.TmioError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 @app.get("/api/insights")

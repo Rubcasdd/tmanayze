@@ -90,13 +90,53 @@ def zone_standing(player: dict) -> list[dict]:
     return levels
 
 
-def get_map_leaderboard(map_uid: str, length: int = 20, offset: int = 0) -> list[dict]:
+def get_map_leaderboard_page(map_uid: str, length: int = 20, offset: int = 0) -> tuple[list[dict], int | None]:
+    """One page of the world leaderboard plus the total number of players."""
     try:
         net.valid_map_uid(map_uid)
     except ValueError as e:
         raise TmioError(str(e)) from e
     data = _get(f"/leaderboard/map/{map_uid}", {"offset": max(0, int(offset)), "length": max(1, min(int(length), 100))})
-    return data.get("tops", []) if isinstance(data, dict) else []
+    if not isinstance(data, dict):
+        return [], None
+    total = data.get("playercount")
+    return (data.get("tops") or []), (int(total) if isinstance(total, (int, float)) else None)
+
+
+def get_map_leaderboard(map_uid: str, length: int = 20, offset: int = 0) -> list[dict]:
+    return get_map_leaderboard_page(map_uid, length=length, offset=offset)[0]
+
+
+def locate_time(map_uid: str, time_ms: int, page: int = 100) -> dict:
+    """Find where a finish time sits on the world leaderboard.
+
+    The board is sorted by time, so a binary search over pages (comparing each
+    page's first time) lands on the right page in ~log2(players/100) requests,
+    however deep the board is. Returns the page offset to show and, if exactly
+    that time was found, its position.
+    """
+    first, total = get_map_leaderboard_page(map_uid, length=page, offset=0)
+    if not first or total is None:
+        return {"offset": 0, "total": total, "position": None}
+    if time_ms <= (first[0].get("time") or 0):
+        return {"offset": 0, "total": total, "position": 1 if time_ms == first[0].get("time") else None}
+    lo, hi = 0, max(0, (total - 1) // page)  # page indexes
+    # find the last page whose first time is <= time_ms
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        tops = first if mid == 0 else get_map_leaderboard_page(map_uid, length=page, offset=mid * page)[0]
+        if not tops:
+            hi = mid - 1
+            continue
+        if (tops[0].get("time") or 0) <= time_ms:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    tops = first if best == 0 else get_map_leaderboard_page(map_uid, length=page, offset=best * page)[0]
+    position = next((t.get("position") for t in tops if t.get("time") == time_ms), None)
+    return {"offset": best * page, "total": total, "position": position}
 
 
 def ghost_download_url(ref: str) -> str:
