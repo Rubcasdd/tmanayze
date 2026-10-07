@@ -39,6 +39,16 @@ CURVATURE_WINDOW_M = 3.0
 HEADING_BASELINE_M = 1.5
 CORNER_MIN_SPAN_M = 4.0
 CORNER_MERGE_GAP_M = 8.0
+# A second, wider pass finds long sweepers that the tight pass above misses
+# (fast maps are full of bends with a 200-500 m radius: only ~0.1-0.3 deg per
+# metre, but at 300+ km/h they still cost or win time). It looks at the heading
+# over a +/-WIDE window, needs a lower rate to start, and must add up to a real
+# turn before it counts.
+WIDE_WINDOW_M = 12.0
+WIDE_ENTER_CURVATURE = 0.30  # deg/m
+WIDE_EXIT_CURVATURE = 0.15   # deg/m
+WIDE_MIN_NET_DEG = 10.0
+WIDE_MIN_SPAN_M = 14.0
 BRAKE_LOOKBACK_M = 40.0
 STEER_DEADZONE = 0.08
 DIGITAL_INTERMEDIATE_MAX = 0.06
@@ -132,7 +142,9 @@ def _interpolate_on_reference(point: dict, ref: list[dict], j: int) -> tuple[flo
     return best[1], best[2], math.sqrt(best[0])
 
 
-def _heading_and_curvature(samples: list[dict]) -> tuple[list[float], list[float], list[float]]:
+def _heading_and_curvature(
+    samples: list[dict], window_m: float = CURVATURE_WINDOW_M
+) -> tuple[list[float], list[float], list[float]]:
     """Horizontal cumulative distance, path heading (deg) and absolute path
     curvature (deg per metre) for each sample."""
     n = len(samples)
@@ -154,17 +166,64 @@ def _heading_and_curvature(samples: list[dict]) -> tuple[list[float], list[float
         elif i:
             heading[i] = heading[i - 1]  # stationary: keep the last heading
 
+    # Before the car first moves there is no heading yet (it would read as 0 and
+    # fake a huge turn as soon as the car sets off), so borrow the first real one.
+    first = next((i for i in range(n) if abs(samples[i]["x"] - samples[0]["x"]) + abs(samples[i]["z"] - samples[0]["z"]) > 1e-6), None)
+    if first:
+        for i in range(first):
+            heading[i] = heading[first]
+
     curvature = [0.0] * n
     m = k = 0
     for i in range(n):
-        while m < n - 1 and dist[i] - dist[m] > CURVATURE_WINDOW_M:
+        while m < n - 1 and dist[i] - dist[m] > window_m:
             m += 1
-        while k < n - 1 and dist[k + 1] - dist[i] <= CURVATURE_WINDOW_M:
+        while k < n - 1 and dist[k + 1] - dist[i] <= window_m:
             k += 1
         span = dist[k] - dist[m]
         if span > 1.0:
             curvature[i] = abs(_wrap180(heading[k] - heading[m])) / span
     return dist, heading, curvature
+
+
+def _threshold_runs(curvature: list[float], enter: float, leave: float) -> list[tuple[int, int]]:
+    """Index ranges where the curvature rises above `enter` and stays above `leave`."""
+    runs: list[tuple[int, int]] = []
+    inside = False
+    start = 0
+    for i, c in enumerate(curvature):
+        if not inside and c >= enter:
+            inside, start = True, i
+        elif inside and c < leave:
+            inside = False
+            runs.append((start, i))
+    if inside:
+        runs.append((start, len(curvature) - 1))
+    return runs
+
+
+def _trim_to_turn(a: int, b: int, heading: list[float], keep: float = 0.06) -> tuple[int, int]:
+    """The wide window smears a corner ~12 m past where the car actually turns.
+    Pull both ends in to where the heading really starts and stops changing."""
+    steps = [_wrap180(heading[i] - heading[i - 1]) for i in range(a + 1, b + 1)]
+    net = sum(steps)
+    if abs(net) < 1e-6:
+        return a, b
+    sign = 1.0 if net > 0 else -1.0
+    lo, hi = 0, len(steps)
+    acc = 0.0
+    while lo < hi:
+        acc += steps[lo] * sign
+        if acc > keep * abs(net):
+            break
+        lo += 1
+    acc = 0.0
+    while hi > lo:
+        acc += steps[hi - 1] * sign
+        if acc > keep * abs(net):
+            break
+        hi -= 1
+    return a + lo, a + hi
 
 
 def _detect_corner_segments(ref_samples: list[dict]) -> list[tuple[int, int, float]]:
@@ -175,24 +234,43 @@ def _detect_corner_segments(ref_samples: list[dict]) -> list[tuple[int, int, flo
         return []
     dist, heading, curvature = _heading_and_curvature(ref_samples)
 
+    # tight pass: sharp bends (radius under ~95 m)
     raw: list[tuple[int, int]] = []
-    inside = False
-    start = 0
-    for i, c in enumerate(curvature):
-        if not inside and c >= CORNER_ENTER_CURVATURE:
-            inside, start = True, i
-        elif inside and c < CORNER_EXIT_CURVATURE:
-            inside = False
-            raw.append((start, i))
-    if inside:
-        raw.append((start, n - 1))
+    for a, b in _threshold_runs(curvature, CORNER_ENTER_CURVATURE, CORNER_EXIT_CURVATURE):
+        if dist[b] - dist[a] >= CORNER_MIN_SPAN_M:
+            raw.append((a, b))
 
+    # wide pass: long sweepers
+    _, _, wide_curv = _heading_and_curvature(ref_samples, WIDE_WINDOW_M)
+    for a, b in _threshold_runs(wide_curv, WIDE_ENTER_CURVATURE, WIDE_EXIT_CURVATURE):
+        a, b = _trim_to_turn(a, b, heading)
+        if b <= a or dist[b] - dist[a] < WIDE_MIN_SPAN_M:
+            continue
+        net = sum(_wrap180(heading[i] - heading[i - 1]) for i in range(a + 1, b + 1))
+        if abs(net) >= WIDE_MIN_NET_DEG:
+            raw.append((a, b))
+
+    # union: overlapping or near-touching stretches that turn the same way become
+    # one corner. Opposite turns stay separate (a chicane is two corners), cut
+    # where they meet.
+    def _net(a: int, b: int) -> float:
+        return sum(_wrap180(heading[i] - heading[i - 1]) for i in range(a + 1, b + 1))
+
+    raw.sort()
     segments: list[tuple[int, int]] = []
     for a, b in raw:
-        if dist[b] - dist[a] < CORNER_MIN_SPAN_M:
+        if not segments:
+            segments.append((a, b))
             continue
-        if segments and dist[a] - dist[segments[-1][1]] < CORNER_MERGE_GAP_M:
-            segments[-1] = (segments[-1][0], b)
+        la, lb = segments[-1]
+        same_way = _net(la, lb) * _net(a, b) >= 0
+        if same_way and dist[a] - dist[lb] < CORNER_MERGE_GAP_M:
+            segments[-1] = (la, max(b, lb))
+        elif not same_way and a <= lb:
+            cut = (a + lb) // 2
+            segments[-1] = (la, max(la, cut))
+            if b > cut:
+                segments.append((cut, b))
         else:
             segments.append((a, b))
 
