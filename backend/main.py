@@ -270,9 +270,17 @@ def compare(body: CompareRequest):
     the frontend can overlay them directly."""
     subject = body.subject.as_run()
     out = {}
+    try:
+        subject_flights = signals_mod.public_flights(subject.get("samples") or [])
+    except Exception:  # jumps are a bonus; never break the comparison over them
+        subject_flights = []
     for ref in body.references:
         reference = ref.as_run()
         result = compare_runs(subject, reference)
+        try:
+            reference_flights = signals_mod.public_flights(reference.get("samples") or [])
+        except Exception:
+            reference_flights = []
         found = focus.find_focus(result.stats, result.corners, result.sections)
         out[ref.id] = {
             "reference_label": _label(reference, "ghost"),
@@ -282,6 +290,9 @@ def compare(body: CompareRequest):
             "sections": result.sections,
             "focus": found["focus"],
             "strengths": found["strengths"],
+            "reference_path": result.reference_path,
+            "subject_flights": subject_flights,
+            "reference_flights": reference_flights,
         }
     return out
 

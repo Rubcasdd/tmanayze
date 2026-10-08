@@ -13,11 +13,15 @@ coach that works from those measurements.
   speed difference, steering, brake/throttle), a colour-coded track map, per-section
   charts, and a corner table. Every graph has an Expand button, and the workspace can
   go full screen.
-- **Fullscreen track page:** open it from the track card on any map. It draws the whole
-  track at full size with your line and the ghosts' lines, and lets you zoom and pan.
-  Select a corner to zoom in and see exactly where the ghost brakes, turns in, hits the
-  apex and gets back on the throttle, with your markers next to it, how many metres
-  earlier or later you are, and how much wider or tighter your line is.
+- **Track tab (3D) and full page:** a 3D view of the track with its heights that you can orbit
+  and zoom (or switch to a flat map), with your line coloured by time, speed or pedals, the
+  ghosts' lines, numbered corners and jumps drawn as arcs. Select a corner to fly in and see
+  exactly where the ghost brakes, turns in, hits the apex and gets back on the throttle, with
+  your markers next to it, how many metres earlier or later you are, how much wider or tighter
+  your line is, and whether the corner is uphill or downhill. Also: an elevation profile, a
+  list of jumps (air time, speed lost, air-braking) compared with the ghost, and a replay of both
+  runs side by side with a scrubber and a follow camera. It's the "Track" tab of a map, and
+  "Full page" opens it full screen.
 - **Full world leaderboard:** page through every player, jump to a rank, or find where
   your own time sits (the board is searched by time, so it works on any map).
 - **What to focus on:** ranked, titled focus areas ("Carry more speed through the

@@ -609,16 +609,17 @@ function setTab(name) {
   $$(".ws-bar .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
   $$(".view").forEach((v) => (v.hidden = v.dataset.view !== name));
   if (name === "board") ensureBoardPage(state.board && state.board.offset ? state.board.offset : 0);
+  if (name === "track" && typeof TrackPage !== "undefined") TrackPage.showTab();
   if (name === "overview" && state.trackMap) requestAnimationFrame(drawTrackMap);
 }
 
 function updateTabAvailability() {
   const has = !!state.compare;
-  ["sections", "corners", "coach"].forEach((t) => {
+  ["sections", "corners", "coach", "track"].forEach((t) => {
     const b = $(`.ws-bar .tab[data-tab="${t}"]`);
     b.disabled = !has;
   });
-  if (!has && ["sections", "corners", "coach"].includes(state.tab)) setTab("overview");
+  if (!has && ["sections", "corners", "coach", "track"].includes(state.tab)) setTab("overview");
 }
 
 // ---- adding ghosts
@@ -840,7 +841,7 @@ async function maybeLoadComparison() {
     $("#ws-vs").textContent = "";
     updateTabAvailability();
     showEmptyWorkspace();
-    if (state.view === "track" && typeof TrackPage !== "undefined") TrackPage.refresh();
+    if (typeof TrackPage !== "undefined") TrackPage.onCompare();
     return;
   }
   const ids = sortedGhostIds();
@@ -922,7 +923,7 @@ function renderComparison() {
     $("#corner-tbody").innerHTML = "";
   }
   renderHighlightChip();
-  if (state.view === "track" && typeof TrackPage !== "undefined") TrackPage.refresh();
+  if (typeof TrackPage !== "undefined") TrackPage.onCompare();
 }
 
 function renderStats(data, ids) {
