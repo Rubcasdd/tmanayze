@@ -1823,7 +1823,7 @@ function wireBoard() {
 // ============================================================ coach (AI) report
 
 const REPORT_SECTIONS = [
-  "Top focus areas", "Steering comparison", "Map character", "Section-by-section", "Practice plan",
+  "Top focus areas", "Steering comparison", "Techniques to try", "Map character", "Section-by-section", "Practice plan",
   "Skill assessment", "Where they stand", "Progress since last time",
 ];
 

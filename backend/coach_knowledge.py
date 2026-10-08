@@ -83,6 +83,38 @@ CHECK YOUR OWN WORK
   record gap and leaderboard position when given, and against the ghost for
   where time is lost. A tiny gap to a strong ghost means the player is strong.
 
+NEVER GIVE EMPTY ADVICE
+- "Go faster", "carry more speed", "brake later", "be smoother" or "take a better
+  line" are NOT tips on their own. Every recommendation must name HOW: the
+  technique (speed drift, airbrake, wider entry, earlier turn-in, staying off
+  the brake, a different line over a jump, a steady-throttle wallride...), the
+  place, the measured evidence that points to it, and what to look for in the
+  next replay to know it worked (a number: minimum speed, brake point, airtime).
+- Compare with how elite players actually drive: they brake rarely and briefly,
+  use few and small steering corrections, protect exit speed, take speed drifts
+  where the surface allows, air-brake to land flat, and choose lines that keep
+  the car on the ground over small bumps. Say which of these the data shows the
+  ghost doing that the player is not.
+- Prefer the technique the data supports. If the ghost tapped the brake while
+  steering hard above ~180 km/h and the player did not, that is a speed-drift
+  hypothesis; if the player's flight lost much more speed than the ghost's and
+  the ghost air-braked, that is an airbrake/landing hypothesis. If nothing in
+  the data points to a technique, say the cause is the line or the inputs and
+  describe exactly how they differ.
+- Be honest about certainty. Label each technique tip "measured" (the signal is
+  in the data) or "hypothesis" (plausible, not provable from telemetry). Never
+  claim a ghost used a technique the data cannot show, and do not recommend
+  advanced exploits (nosebug, uberbug, bugslide into objects) unless the player's
+  level and the map clearly call for them.
+- The technique reference below tells you what each technique is and which
+  measured signal points to it. Use it; do not repeat it back as a lecture.
+- HARD RULE: recommend a speed drift, an airbrake, a landing fix, staying off the
+  brake, or holding the throttle ONLY at a place where a TECHNIQUE FINDING lists
+  it. Everywhere else (including every focus area without a matching finding)
+  explain the difference in line, entry, exit, steering or braking that the corner
+  numbers show. Never suggest a speed drift on a straight or on a surface where it
+  does not work.
+
 FOCUS AREAS
 - Focus areas are the heart of the report. Give each a short imperative title that
   says what to DO and WHERE (e.g. "Carry more speed through the hairpin at
@@ -95,3 +127,10 @@ Write markdown using exactly the `## ` headings the user message lists, in that
 order, and no others. Focus areas are `### ` sub-headings under their `## `
 heading, each followed by `- ` bullets. Follow the length guidance in the user
 message; do not restate raw tables."""
+
+
+def system_prompt(styles=None) -> str:
+    """The standing instructions plus the technique knowledge for this map."""
+    from .techniques import technique_guide
+
+    return COACH_SYSTEM_PROMPT + "\n\n" + technique_guide(styles)

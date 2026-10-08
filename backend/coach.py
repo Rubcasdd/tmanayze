@@ -139,7 +139,8 @@ def _world_text(insights: dict | None, player_time_ms, ref_time_ms, ref_world_po
         pct = (player_time_ms - wr) / wr * 100
         lines.append(
             f"World record: {_secs(wr)} by {_clean(top[0].get('player_name'))}. The player's time is "
-            f"{abs(pct):.1f}% {'slower' if pct > 0 else 'faster'} than the world record."
+            f"{abs(pct):.1f}% {'slower' if pct > 0 else 'faster'} than the world record, i.e. "
+            f"{abs(player_time_ms - wr) / 1000:.2f}s {'BEHIND' if pct > 0 else 'AHEAD OF'} it."
         )
     pos = insights.get("player_world_position")
     if pos:
@@ -218,6 +219,7 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
     headings = ["Top focus areas"]
     if telemetry:
         headings.append("Steering comparison")
+        headings.append("Techniques to try")
     headings.append("Map character")
     if telemetry and cfg["walkthrough"]:
         headings.append("Section-by-section")
@@ -241,17 +243,29 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         f"\nWrite the coaching report now using exactly these markdown headings, in this order, and no others: {listed}.",
         "What each section must contain:",
         f"- `## Top focus areas`: up to {n} ranked focus areas, most time first"
-        + (", built from the PRE-RANKED FOCUS CANDIDATES above (keep their order unless the data says otherwise)." if telemetry else
+        + (", built from the PRE-RANKED FOCUS CANDIDATES above: one focus area per candidate, in their order, never more areas "
+           "than there are candidates, and never repeat, merge or invent one (if there are only two candidates, write two). "
+           "The ALREADY WORKING items are not focus areas: mention them as strengths elsewhere." if telemetry else
            ", kept general because there is no per-tick data - say so.")
         + " Each is a `### ` heading with a short imperative title (for example \"Carry more speed through the hairpin at 1882-2032 m\"), "
         "followed by three bullets: **Evidence** (the measured numbers), **What to change** (one or two concrete, testable things "
-        "to try, suited to the player's input device) and **Expected payoff** (the time at stake - call it an upper bound). "
+        "to try, suited to the player's input device; name the technique or mechanism, never just \"go faster\"; a speed drift, "
+        "airbrake or landing fix only where the TECHNIQUE FINDINGS list one at that place) and "
+        "**Expected payoff** (the time at stake - call it an upper bound; also say what number to look for in the next replay). "
         "If the player is already ahead of the ghost, focus on where they could extend the lead.",
     ]
     if telemetry:
         parts.append(
             "- `## Steering comparison`: how the player's steering differs from the ghost's overall and in the key sections "
             "(amount, full-lock time, reversals, smoothness, input device) and what it costs or gains."
+        )
+    if telemetry:
+        parts.append(
+            "- `## Techniques to try`: built ONLY from the TECHNIQUE FINDINGS above, one `### ` sub-heading per finding (the "
+            "technique's name), each with bullets for **Where** (distance), **Signal** (quote the finding's numbers exactly; "
+            "do not mix up different jumps or corners), **How to practise** and **Certainty** (measured, or hypothesis when the "
+            "technique is inferred). Never recommend a technique that is not in the findings, and never put a speed drift on a "
+            "straight. If the findings say there are none, write two sentences saying the time is in the line and the inputs."
         )
     parts.append("- `## Map character`: what kind of map this is, from the tags and the telemetry, and what matters most on it.")
     if telemetry and cfg["walkthrough"]:
@@ -289,10 +303,14 @@ def build_user_prompt(
     reference_world_position: int | None = None,
     focus: dict | None = None,
     depth: str = DEFAULT_DEPTH,
+    signals: str = "",
+    style_line: str = "",
 ) -> str:
     subject_label, reference_label = _clean(subject_label), _clean(reference_label)
     out: list[str] = []
     out.append(f"MAP: {map_name or 'unknown'}")
+    if style_line:
+        out.append(style_line)
     out.append(f'PLAYER RUN: "{subject_label}"   REFERENCE GHOST: "{reference_label}"')
     gap = stats.get("final_delta_ms")
     out.append(
@@ -346,6 +364,12 @@ def build_user_prompt(
         f"- Biggest single deficit: {_signed_secs(stats['max_time_lost_ms'])} at {stats['max_time_lost_at_pct']}% of the run; "
         f"biggest single lead: {_signed_secs(stats['max_time_gained_ms'])} at {stats['max_time_gained_at_pct']}%"
     )
+
+    if signals:
+        out.append(
+            "\nTECHNIQUE SIGNALS (measured from the raw telemetry; they say what each run DID, "
+            "the technique behind it is your interpretation - see the technique reference):\n" + signals
+        )
 
     focus_block = focus_text(focus)
     if focus_block:

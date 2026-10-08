@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, tmio_client
-from .coach_knowledge import COACH_SYSTEM_PROMPT
+from . import coach_knowledge, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -351,6 +351,21 @@ def analyze(
         except (ValueError, KeyError):
             insights = None
 
+    # What each run did (jumps, airbrake, brake taps while steering, lifts) and
+    # what kind of map this is, so the coach can name techniques, not just "go faster".
+    signals_block, style_line, styles = "", "", []
+    if result.stats.get("telemetry"):
+        try:
+            signals_block, features, tech_findings = signals_mod.signals_text(
+                subject.get("samples") or [], reference.get("samples") or []
+            )
+            map_tags = ((insights or {}).get("map") or {}).get("tags") or []
+            styles = techniques.detect_styles(map_tags, features)
+            style_line = techniques.style_text(styles)
+            signals_block += "\n" + signals_mod.findings_text(tech_findings, styles)
+        except Exception:  # never let a signal bug block the analysis
+            signals_block, style_line, styles = "", "", []
+
     reference_label = _label(reference, "ghost")
     map_name = subject.get("map_name") or ((insights or {}).get("map") or {}).get("name")
     cfg = coach.depth_config(body.depth)
@@ -369,6 +384,8 @@ def analyze(
         reference_world_position=reference.get("world_position"),
         focus=found,
         depth=depth,
+        signals=signals_block,
+        style_line=style_line,
     )
 
     # Count the analysis only when it uses the server's keys (a visitor's own
@@ -376,7 +393,7 @@ def analyze(
     hits = [] if (not using_pool or _is_admin(x_admin_code)) else _consume_ai_quota(request)
     try:
         text = nim_client.analyze(
-            COACH_SYSTEM_PROMPT, prompt, user_key=x_nim_key,
+            coach_knowledge.system_prompt(styles), prompt, user_key=x_nim_key,
             params=nim_client.AnalysisParams(max_tokens=cfg["max_tokens"], reasoning_budget=cfg["reasoning_budget"]),
         )
     except nim_client.NimConfigError as e:
