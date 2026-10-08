@@ -101,6 +101,24 @@ def get_map_info(map_uid: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+_totd_cache: dict[int, tuple[float, list[dict]]] = {}
+
+
+def get_totd_month(month_offset: int = 0) -> list[dict]:
+    """The Tracks of the Day of one month (0 = this month, 1 = last month...),
+    newest first. Each entry has the full map record: name, author, thumbnail
+    and medal times. Cached for an hour."""
+    offset = max(0, min(int(month_offset), 120))
+    hit = _totd_cache.get(offset)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    data = _get(f"/totd/{offset}")
+    days = data.get("days", []) if isinstance(data, dict) else []
+    days = sorted(days, key=lambda d: d.get("monthday", 0), reverse=True)
+    _totd_cache[offset] = (time.time(), days)
+    return days
+
+
 def get_map_leaderboard_page(map_uid: str, length: int = 20, offset: int = 0) -> tuple[list[dict], int | None]:
     """One page of the world leaderboard plus the total number of players."""
     try:

@@ -494,11 +494,15 @@ async function searchMaps() {
       box.innerHTML = `<div class="hint">No maps found.</div>`;
       return;
     }
-    box.innerHTML = results
+    const backup = results.some((m) => m.fallback);
+    const note = backup
+      ? `<div class="hint" style="margin-bottom:6px">ManiaExchange isn't responding, so this shows recent Tracks of the Day${q ? ` matching “${esc(q)}”` : ""} from trackmania.io.</div>`
+      : "";
+    box.innerHTML = note + results
       .map(
         (m) => `<a class="result-row" href="#/map/${esc(m.map_uid)}">
           <img src="${esc(m.thumbnail_url)}" loading="lazy" alt="" />
-          <span><div class="rr-name">${esc(m.name)}</div><div class="rr-by">${esc((m.authors || []).map(tmName).join(", "))}</div></span></a>`
+          <span><div class="rr-name">${esc(m.name)}</div><div class="rr-by">${esc((m.authors || []).map(tmName).join(", "))}${m.totd ? ` · TOTD ${esc(m.totd)}` : ""}</div></span></a>`
       )
       .join("");
     results.forEach((m) => {

@@ -480,12 +480,68 @@ def _fallback_map_summary(map_uid: str, *, mx_unavailable: bool) -> dict | None:
     }
 
 
+def _totd_maps(query: str | None, count: int, months: int = 3) -> list[dict]:
+    """Recent Tracks of the Day (optionally filtered by name), shaped like the
+    ManiaExchange summaries. This is the backup for map search when ManiaExchange
+    is down: it comes from trackmania.io, which mirrors Nadeo's live data."""
+    needle = (query or "").strip().lower()
+    out: list[dict] = []
+    for offset in range(months):
+        try:
+            days = tmio_client.get_totd_month(offset)
+        except tmio_client.TmioError:
+            continue
+        for day in days:
+            m = day.get("map") or {}
+            uid = m.get("mapUid")
+            name = coach._clean(m.get("name"))
+            if not uid or (needle and needle not in name.lower()):
+                continue
+            author = (m.get("authorplayer") or {}).get("name")
+            out.append({
+                "map_id": m.get("exchangeid"),
+                "map_uid": uid,
+                "name": name,
+                "authors": [author] if author else [],
+                "tags": [],
+                "difficulty": None,
+                "award_count": None,
+                "replay_count": None,
+                "thumbnail_url": m.get("thumbnailUrl") or "",
+                "source": "trackmania.io",
+                "fallback": True,
+                "totd": f"{m.get('timestamp', '')[:10]}",
+            })
+            if len(out) >= count:
+                return out
+    return out
+
+
 @app.get("/api/mx/search")
 def mx_search(name: str | None = None, tag: str | None = None, count: int = 24):
     try:
         return [_mx_map_summary(m) for m in mx_client.search_maps(name=name, tag=tag, count=count)]
     except mx_client.MxError as e:
+        if e.unavailable:
+            backup = _totd_maps(name, max(1, min(count, 50)))
+            if backup:
+                return backup  # ManiaExchange is down: recent Tracks of the Day instead
+            if name and name.strip():
+                raise HTTPException(
+                    503,
+                    f"ManiaExchange isn't responding right now, and no recent Track of the Day matches “{name.strip()}”. "
+                    "Try again in a minute, or search for a name from a recent Track of the Day.",
+                ) from e
         raise _mx_http_error(e) from e
+
+
+@app.get("/api/tmio/totd")
+def tmio_totd(name: str | None = None, count: int = 24, months: int = 3):
+    """Recent Tracks of the Day, newest first, optionally filtered by name."""
+    try:
+        return _totd_maps(name, max(1, min(count, 100)), max(1, min(months, 12)))
+    except tmio_client.TmioError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 _map_info_cache: dict[str, dict | None] = {}
