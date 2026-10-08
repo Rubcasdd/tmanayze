@@ -90,6 +90,17 @@ def zone_standing(player: dict) -> list[dict]:
     return levels
 
 
+def get_map_info(map_uid: str) -> dict:
+    """Name, author, thumbnail and medal times straight from Nadeo's data
+    (works for campaign maps too, and when ManiaExchange is down)."""
+    try:
+        net.valid_map_uid(map_uid)
+    except ValueError as e:
+        raise TmioError(str(e)) from e
+    data = _get(f"/map/{map_uid}")
+    return data if isinstance(data, dict) else {}
+
+
 def get_map_leaderboard_page(map_uid: str, length: int = 20, offset: int = 0) -> tuple[list[dict], int | None]:
     """One page of the world leaderboard plus the total number of players."""
     try:
