@@ -214,6 +214,7 @@ function fetchMapInfo(uid) {
   const job = infoQueue.then(async () => {
     try {
       const info = await api(`/api/mx/map-info/${encodeURIComponent(uid)}`);
+      info.name = tmName(info.name);
       infoCache.set(uid, info);
       infoStore[uid] = { name: info.name, thumbnail_url: info.thumbnail_url, authors: info.authors, tags: info.tags, difficulty: info.difficulty };
       const keys = Object.keys(infoStore);
@@ -546,6 +547,7 @@ async function openMap(mapUid) {
     detail = { map_uid: mapUid, name: quickName, thumbnail_url: "", tags: [], authors: [], difficulty: null, award_count: null, replays: [], notOnMx: true };
   }
   if (token !== state.mapToken) return;
+  detail.name = tmName(detail.name) || quickName; // trackmania.io names carry in-game colour codes
   state.map = detail;
   infoCache.set(mapUid, { name: detail.name, thumbnail_url: detail.thumbnail_url, authors: detail.authors, tags: detail.tags, difficulty: detail.difficulty });
 
@@ -566,7 +568,8 @@ function renderMapMeta(detail, uid) {
   const bits = [];
   if (detail && detail.authors && detail.authors.length) bits.push(`by ${esc(detail.authors.map(tmName).join(", "))}`);
   if (detail && detail.award_count != null && !detail.notOnMx) bits.push(`${detail.award_count} awards`);
-  if (detail && detail.notOnMx) bits.push("not on ManiaExchange");
+  if (detail && detail.mx_unavailable) bits.push("ManiaExchange isn't responding, so these details come from trackmania.io");
+  else if (detail && (detail.notOnMx || detail.not_on_mx)) bits.push("not on ManiaExchange");
   const tags = ((detail && detail.tags) || []).map((t) => `<span class="tag">${esc(t)}</span>`).join("");
   $("#map-meta").innerHTML = bits.map((b) => `<span>${b}</span>`).join("") + tags;
   renderMapKpis();
@@ -582,7 +585,9 @@ function renderMapKpis() {
   const first = state.board && state.board.pages && state.board.pages[0];
   const wr = first && first.entries.length ? first.entries[0].time_ms : null;
   const items = [];
+  const author = state.map && state.map.medals && state.map.medals.author;
   items.push(["Your best", best != null ? fmtTime(best) : "–"]);
+  if (author) items.push(["Author medal", fmtTime(author)]);
   if (wr != null) items.push(["World #1", fmtTime(wr)]);
   if (wr != null && best != null) items.push(["Behind #1", `${fmtGap(best - wr)} · ${(((best - wr) / wr) * 100).toFixed(2)}%`]);
   if (state.board && state.board.total) items.push(["Players", state.board.total.toLocaleString()]);
@@ -634,7 +639,10 @@ async function importInto(btn, path, formData) {
 function renderMxReplays(replays) {
   const box = $("#mx-list");
   if (!replays.length) {
-    box.innerHTML = `<div class="hint">No community replays on ManiaExchange for this map.</div>`;
+    const down = state.map && state.map.mx_unavailable;
+    box.innerHTML = `<div class="hint">${down
+      ? "ManiaExchange isn't responding right now, so community replays can't be listed. Reload in a minute."
+      : "No community replays on ManiaExchange for this map."}</div>`;
     return;
   }
   box.innerHTML = replays

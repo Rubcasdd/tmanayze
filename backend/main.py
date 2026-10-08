@@ -229,7 +229,7 @@ def mx_import_replay(map_uid: str = Form(...), mx_replay_id: int = Form(...), ki
     try:
         data = mx_client.download_replay_bytes(mx_replay_id)
     except mx_client.MxError as e:
-        raise HTTPException(502, str(e)) from e
+        raise _mx_http_error(e) from e
     return _run_record(
         data, kind=kind, source="mx", filename=f"mx-replay-{mx_replay_id}.Gbx", map_uid_hint=map_uid,
     )
@@ -427,12 +427,48 @@ def _mx_map_summary(m: dict) -> dict:
     }
 
 
+def _mx_http_error(e: "mx_client.MxError") -> HTTPException:
+    return HTTPException(503 if e.unavailable else 502, str(e))
+
+
+def _fallback_map_summary(map_uid: str, *, mx_unavailable: bool) -> dict | None:
+    """Map details from trackmania.io, for when ManiaExchange is down or the
+    map isn't on it (campaign maps)."""
+    try:
+        info = tmio_client.get_map_info(map_uid)
+    except tmio_client.TmioError:
+        return None
+    if not info:
+        return None
+    author = (info.get("authorplayer") or {}).get("name")
+    return {
+        "map_id": info.get("exchangeid"),
+        "map_uid": map_uid,
+        "name": info.get("name"),
+        "authors": [author] if author else [],
+        "tags": [],
+        "difficulty": None,
+        "award_count": None,
+        "replay_count": None,
+        "thumbnail_url": info.get("thumbnailUrl") or "",
+        "source": "trackmania.io",
+        "mx_unavailable": mx_unavailable,
+        "not_on_mx": not mx_unavailable,
+        "medals": {
+            "author": info.get("authorScore"),
+            "gold": info.get("goldScore"),
+            "silver": info.get("silverScore"),
+            "bronze": info.get("bronzeScore"),
+        },
+    }
+
+
 @app.get("/api/mx/search")
 def mx_search(name: str | None = None, tag: str | None = None, count: int = 24):
     try:
         return [_mx_map_summary(m) for m in mx_client.search_maps(name=name, tag=tag, count=count)]
     except mx_client.MxError as e:
-        raise HTTPException(502, str(e)) from e
+        raise _mx_http_error(e) from e
 
 
 _map_info_cache: dict[str, dict | None] = {}
@@ -450,12 +486,18 @@ def mx_map_info(map_uid: str):
         try:
             m = mx_client.get_map_by_uid(map_uid)
         except mx_client.MxError as e:
-            raise HTTPException(502, str(e)) from e
+            fallback = _fallback_map_summary(map_uid, mx_unavailable=e.unavailable) if e.unavailable else None
+            if fallback:
+                return fallback  # not remembered: ManiaExchange may be back in a minute
+            raise _mx_http_error(e) from e
         _map_info_cache[map_uid] = _mx_map_summary(m) if m else None
         if len(_map_info_cache) > 2000:
             _map_info_cache.pop(next(iter(_map_info_cache)))
     info = _map_info_cache[map_uid]
     if info is None:
+        fallback = _fallback_map_summary(map_uid, mx_unavailable=False)
+        if fallback:
+            return fallback
         raise HTTPException(404, "map not found on ManiaExchange")
     return info
 
@@ -465,8 +507,14 @@ def mx_map_detail(map_uid: str):
     try:
         m = mx_client.get_map_by_uid(map_uid)
     except mx_client.MxError as e:
-        raise HTTPException(502, str(e)) from e
+        fallback = _fallback_map_summary(map_uid, mx_unavailable=True) if e.unavailable else None
+        if fallback:
+            return {**fallback, "replays": []}
+        raise _mx_http_error(e) from e
     if not m:
+        fallback = _fallback_map_summary(map_uid, mx_unavailable=False)
+        if fallback:
+            return {**fallback, "replays": []}
         raise HTTPException(404, "map not found on ManiaExchange")
     try:
         replays = mx_client.list_replays(m["MapId"], count=20)
