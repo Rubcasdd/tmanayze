@@ -170,10 +170,10 @@ async function loadHealth() {
 
 function route() {
   const hash = location.hash || "#/";
-  const m = hash.match(/^#\/map\/([A-Za-z0-9_-]{20,40})/);
+  const m = hash.match(/^#\/map\/([A-Za-z0-9_-]{20,40})(\/track)?/);
   closeExpand();
   if (m) {
-    showView("map");
+    showView(m[2] ? "track" : "map");
     openMap(m[1]);
   } else {
     showView("home");
@@ -188,10 +188,12 @@ function route() {
 }
 
 function showView(name) {
+  state.view = name;
   $("#view-home").hidden = name !== "home";
   $("#view-map").hidden = name !== "map";
+  $("#view-track").hidden = name !== "track";
   $("#nav-maps").classList.toggle("on", name === "home");
-  $("#crumb").hidden = name !== "map";
+  $("#crumb").hidden = name === "home";
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
@@ -555,6 +557,7 @@ async function openMap(mapUid) {
   state.map = detail;
   infoCache.set(mapUid, { name: detail.name, thumbnail_url: detail.thumbnail_url, authors: detail.authors, tags: detail.tags, difficulty: detail.difficulty });
 
+  $("#open-track").href = `#/map/${mapUid}/track`;
   $("#map-title").textContent = detail.name;
   $("#crumb").textContent = detail.name;
   document.title = `${detail.name} · Trackmania Analyzer`;
@@ -563,6 +566,7 @@ async function openMap(mapUid) {
   setTab(state.tab);
 
   await Promise.all([loadRuns(), ensureBoardPage(0)]);
+  if (state.view === "track" && typeof TrackPage !== "undefined") TrackPage.refresh();
 }
 
 function renderMapMeta(detail, uid) {
@@ -836,6 +840,7 @@ async function maybeLoadComparison() {
     $("#ws-vs").textContent = "";
     updateTabAvailability();
     showEmptyWorkspace();
+    if (state.view === "track" && typeof TrackPage !== "undefined") TrackPage.refresh();
     return;
   }
   const ids = sortedGhostIds();
@@ -917,6 +922,7 @@ function renderComparison() {
     $("#corner-tbody").innerHTML = "";
   }
   renderHighlightChip();
+  if (state.view === "track" && typeof TrackPage !== "undefined") TrackPage.refresh();
 }
 
 function renderStats(data, ids) {
@@ -1435,16 +1441,17 @@ function drawTrackMap() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  // top-down view: x to the right, z up the screen
+  // top-down view: x to the right, z down the screen (with this handedness a rightward
+  // steer is a clockwise turn on the screen, so the map isn't mirrored)
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   pts.forEach((p) => {
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, -p.z); maxY = Math.max(maxY, -p.z);
+    minY = Math.min(minY, p.z); maxY = Math.max(maxY, p.z);
   });
   const pad = 22;
   const k = Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad * 2) / Math.max(1, maxY - minY));
   const ox = (w - (maxX - minX) * k) / 2, oy = (h - (maxY - minY) * k) / 2;
-  tm.screen = pts.map((p) => ({ x: ox + (p.x - minX) * k, y: oy + (-p.z - minY) * k }));
+  tm.screen = pts.map((p) => ({ x: ox + (p.x - minX) * k, y: oy + (p.z - minY) * k }));
   const S = tm.screen;
 
   ctx.lineCap = "round";

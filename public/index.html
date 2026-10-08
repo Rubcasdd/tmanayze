@@ -194,6 +194,7 @@
               <div class="map-card" id="trackmap-card">
                 <div class="plot-head">
                   <h3>Track</h3>
+                  <a class="btn tiny" id="open-track" href="#">Fullscreen &#8599;</a>
                   <div class="seg" id="map-mode" role="group" aria-label="Colour the track by">
                     <button type="button" class="on" data-mode="time">Time</button>
                     <button type="button" data-mode="speed">Speed</button>
@@ -290,6 +291,33 @@
   </div>
 </main>
 
+<main id="view-track" class="track-page" hidden>
+  <div class="tp-bar">
+    <a id="tp-back" href="#/" class="btn quiet">&larr; Back to analysis</a>
+    <h1 id="tp-title">Track</h1>
+    <div class="seg" id="tp-color" role="group" aria-label="Colour your line by">
+      <button type="button" class="on" data-mode="time">Time</button>
+      <button type="button" data-mode="speed">Speed</button>
+      <button type="button" data-mode="pedals">Pedals</button>
+    </div>
+    <label class="tp-check"><input type="checkbox" id="tp-ghost" checked /> Ghost lines</label>
+    <label class="tp-check"><input type="checkbox" id="tp-markers" checked /> Markers</label>
+    <label class="tp-check"><input type="checkbox" id="tp-ticks" checked /> Distances</label>
+    <button type="button" id="tp-fit" class="btn quiet">Fit track</button>
+    <button type="button" id="tp-fs" class="btn quiet">Full screen</button>
+  </div>
+  <div class="tp-body">
+    <div class="tp-stage">
+      <canvas id="tp-canvas"></canvas>
+      <div class="tp-empty" id="tp-empty" hidden><h2>Nothing to draw yet</h2><p>Pick your run and a ghost on the analysis page first, then come back.</p></div>
+      <div class="tp-legend" id="tp-legend"></div>
+      <div class="tp-help">Scroll to zoom, drag to move, double-click to fit. Select a corner on the right.</div>
+    </div>
+    <aside class="tp-panel" id="tp-panel"></aside>
+  </div>
+  <div class="tp-tip" id="tp-tip" hidden></div>
+</main>
+
 <dialog id="settings-dialog" class="dialog">
   <form method="dialog" class="dialog-body" id="settings-form">
     <div class="dialog-head"><h2>Settings</h2><button class="btn quiet" value="close" aria-label="Close">Close</button></div>
@@ -326,5 +354,6 @@
 
 <script src="store.js"></script>
 <script src="app.js"></script>
+<script src="track.js"></script>
 </body>
 </html>
