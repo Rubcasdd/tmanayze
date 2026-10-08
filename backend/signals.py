@@ -85,7 +85,8 @@ def flights(samples: list[dict], dist: list[float]) -> list[dict]:
         landing = samples[min(n - 1, b + 3)]
         out.append({
             "start_i": a, "end_i": b,
-            "x": samples[a]["x"], "z": samples[a]["z"],
+            "x": samples[a]["x"], "y": samples[a]["y"], "z": samples[a]["z"],
+            "end_x": samples[b]["x"], "end_y": samples[b]["y"], "end_z": samples[b]["z"],
             "dist_m": dist[a], "length_m": dist[b] - dist[a],
             "duration_s": duration,
             "speed_in": samples[a]["speed"], "speed_out": landing["speed"],
@@ -164,6 +165,25 @@ def analyze_run(samples: list[dict]) -> dict:
 
 def _near(a: dict, b: dict) -> float:
     return math.hypot(a["x"] - b["x"], a["z"] - b["z"])
+
+
+def public_flights(samples: list[dict]) -> list[dict]:
+    """A run's jumps in the form the frontend draws: where it took off and
+    landed, how long it was airborne, the speeds and whether it was air-braked."""
+    if len(samples) < 20:
+        return []
+    dist = _cumulative_distance(samples)
+    return [
+        {
+            "x": round(f["x"], 1), "y": round(f["y"], 1), "z": round(f["z"], 1),
+            "end_x": round(f["end_x"], 1), "end_y": round(f["end_y"], 1), "end_z": round(f["end_z"], 1),
+            "duration_s": round(f["duration_s"], 2), "length_m": round(f["length_m"], 1),
+            "height_m": round(f["height_m"], 1), "speed_in": round(f["speed_in"], 1), "speed_out": round(f["speed_out"], 1),
+            "brake_s": round(f["brake_s"], 2),
+            "t_ms": samples[f["start_i"]]["time_ms"], "end_t_ms": samples[f["end_i"]]["time_ms"],
+        }
+        for f in flights(samples, dist)
+    ]
 
 
 def pair_items(player: list[dict], ghost: list[dict]) -> tuple[list[tuple[dict, dict]], list[dict], list[dict]]:

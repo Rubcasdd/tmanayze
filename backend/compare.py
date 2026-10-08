@@ -60,6 +60,9 @@ class ComparisonResult:
     stats: dict
     corners: list[dict] = field(default_factory=list)
     sections: list[dict] = field(default_factory=list)
+    # The reference's own path by race time ([t_ms, x, y, z], downsampled), so a
+    # replay can show both cars at the same moment.
+    reference_path: list[list[float]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- geometry
@@ -403,6 +406,7 @@ def _phase(smp: list[dict], dist: list[float], i: int) -> dict:
         "x": _r(smp[i]["x"], 1),
         "z": _r(smp[i]["z"], 1),
         "speed": _r(smp[i]["speed"], 1),
+        "y": _r(smp[i]["y"], 1),
         "distance_m": _r(dist[i], 1),
     }
 
@@ -469,6 +473,16 @@ def _corner_phases(raw_points, matches, subj_samples, ref_samples, subj_dist, re
     return {"subject": subject, "reference": reference, "delta_m": delta, "offset_m": offset}
 
 
+def _corner_slope(smp: list[dict], a: int, b: int) -> dict:
+    """Height change and average grade over a stretch of the track (positive = uphill)."""
+    run = sum(math.hypot(smp[i]["x"] - smp[i - 1]["x"], smp[i]["z"] - smp[i - 1]["z"]) for i in range(a + 1, b + 1))
+    rise = smp[b]["y"] - smp[a]["y"]
+    return {
+        "elevation_change_m": _r(rise, 1),
+        "grade_pct": _r(100.0 * rise / run, 1) if run > 1.0 else 0.0,
+    }
+
+
 def _build_corners(raw_points, matches, subj_samples, ref_samples, segments,
                    subj_dist=None, ref_dist=None, subj_curv=None, ref_curv=None) -> list[dict]:
     corners = []
@@ -500,6 +514,7 @@ def _build_corners(raw_points, matches, subj_samples, ref_samples, segments,
             "reference_avg_steer": _r(rm["avg_abs"], 2),
             "subject_steer_reversals": sm["reversals"],
             "reference_steer_reversals": rm["reversals"],
+            **_corner_slope(ref_samples, ref_i0, ref_i1),
             **({"reference_distance_start": _r(ref_dist[ref_i0], 1), "reference_distance_end": _r(ref_dist[ref_i1], 1)}
                if ref_dist is not None else {}),
             **({"phases": _corner_phases(
@@ -526,6 +541,9 @@ def _public_point(p: dict) -> dict:
         "z": _r(p["z"], 1),
         "reference_x": _r(p["reference_x"], 1),
         "reference_z": _r(p["reference_z"], 1),
+        "t_ms": round(p["t_ms"]),
+        "y": _r(p["y"], 1),
+        "reference_y": _r(p["reference_y"], 1),
     }
 
 
@@ -697,6 +715,9 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
             "z": s["z"],
             "reference_x": r["x"],
             "reference_z": r["z"],
+            "t_ms": s["time_ms"],
+            "y": s["y"],
+            "reference_y": r["y"],
         })
 
     segments = _detect_corner_segments(ref_samples)
@@ -711,4 +732,8 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
     points = [_public_point(p) for p in _downsample(raw_points, DOWNSAMPLE_POINTS)]
     stats = _aggregate_stats(subj_samples, ref_samples, raw_points, corners, subject, reference)
     stats.update(_alignment_quality(deviations, subj_dist[-1], ref_dist[-1]))
-    return ComparisonResult(points=points, stats=stats, corners=corners, sections=sections)
+    step = max(1, len(ref_samples) // DOWNSAMPLE_POINTS)
+    reference_path = [
+        [s["time_ms"], _r(s["x"], 1), _r(s["y"], 1), _r(s["z"], 1)] for s in ref_samples[::step]
+    ]
+    return ComparisonResult(points=points, stats=stats, corners=corners, sections=sections, reference_path=reference_path)
