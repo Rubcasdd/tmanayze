@@ -346,7 +346,131 @@ def _r(value: float, digits: int) -> float:
 
 # ---------------------------------------------------------------- builders
 
-def _build_corners(raw_points, matches, subj_samples, ref_samples, segments) -> list[dict]:
+def _corner_direction(ref_steer: list[float], net_turn: float) -> str:
+    """Which way the corner turns. The driver's steering is the reliable signal
+    (positive = right, as in the game); on a corner taken with almost no
+    steering fall back to the heading change, whose sign goes with positive
+    steering in the recorded data (checked: 111 of 112 clear corners)."""
+    mean = sum(ref_steer) / len(ref_steer) if ref_steer else 0.0
+    if abs(mean) >= 0.05:
+        return "right" if mean > 0 else "left"
+    return "right" if net_turn > 0 else "left"
+
+
+TURN_IN_STEER = 0.2        # steering that counts as having turned in
+STRAIGHT_STEER = 0.25      # below this the car is pointing where it is going
+EXIT_SEARCH_AFTER = 25     # samples past the corner's end to look for full throttle
+
+
+def _phase_indices(smp: list[dict], curv: list[float], a: int, b: int) -> tuple[int, int, int]:
+    """Where one run turned in, hit the apex and got back on the throttle for
+    a corner spanning samples a..b. Turn-in is the first sustained steering
+    (looking a little before the corner), the apex is the point of tightest
+    curvature, and the exit is the first point after it where the car is
+    straight again and the throttle is down."""
+    n = len(smp)
+    lo = max(0, a - 15)
+    turn_in = a
+    for j in range(lo, b + 1):
+        if all(abs(smp[k]["steer"]) >= TURN_IN_STEER for k in range(j, min(j + 3, b + 1))):
+            turn_in = j
+            break
+    apex = max(range(a, b + 1), key=lambda j: curv[j])
+    apex = max(apex, turn_in)
+    exit_i = min(n - 1, b)
+    for j in range(apex, min(n - 1, b + EXIT_SEARCH_AFTER) + 1):
+        window = range(j, min(j + 3, n))
+        if all(abs(smp[k]["steer"]) < STRAIGHT_STEER and smp[k]["gas"] >= 0.9 for k in window):
+            exit_i = j
+            break
+    return turn_in, apex, max(exit_i, apex)
+
+
+def _brake_start_index(brakes: list[float], dist: list[float], start_idx: int) -> int | None:
+    d_start = dist[start_idx]
+    earliest = None
+    i = start_idx
+    while i >= 0 and d_start - dist[i] <= BRAKE_LOOKBACK_M:
+        if brakes[i] > 0.1:
+            earliest = i
+        i -= 1
+    return earliest
+
+
+def _phase(smp: list[dict], dist: list[float], i: int) -> dict:
+    return {
+        "idx": i,
+        "x": _r(smp[i]["x"], 1),
+        "z": _r(smp[i]["z"], 1),
+        "speed": _r(smp[i]["speed"], 1),
+        "distance_m": _r(dist[i], 1),
+    }
+
+
+def _inside_offset(smp: list[dict], j: int, x: float, z: float, net_turn: float) -> float:
+    """How far (metres) a point is from the reference's path, measured across the
+    track: positive = on the inside of the turn (tighter), negative = outside
+    (wider)."""
+    best = None
+    for a, b in ((j - 1, j), (j, j + 1)):
+        if a < 0 or b >= len(smp):
+            continue
+        tx, tz = smp[b]["x"] - smp[a]["x"], smp[b]["z"] - smp[a]["z"]
+        denom = tx * tx + tz * tz
+        if denom < 1e-9:
+            continue
+        u = max(0.0, min(1.0, ((x - smp[a]["x"]) * tx + (z - smp[a]["z"]) * tz) / denom))
+        px, pz = smp[a]["x"] + u * tx, smp[a]["z"] + u * tz
+        d2 = (x - px) ** 2 + (z - pz) ** 2
+        if best is None or d2 < best[0]:
+            length = math.sqrt(denom)
+            nx, nz = -tz / length, tx / length  # the tangent turned 90 degrees towards the inside of a positive turn
+            best = (d2, (x - px) * nx + (z - pz) * nz)
+    if best is None:
+        return 0.0
+    return best[1] if net_turn > 0 else -best[1]
+
+
+def _corner_phases(raw_points, matches, subj_samples, ref_samples, subj_dist, ref_dist, subj_curv, ref_curv,
+                   i0, i1, ref_i0, ref_i1, net_turn) -> dict:
+    """The exact brake point, turn-in, apex and full-throttle point of a corner
+    for both runs, plus how the player's differ (along the track and across it)."""
+    s_turn, s_apex, s_exit = _phase_indices(subj_samples, subj_curv, i0, i1)
+    r_turn, r_apex, r_exit = _phase_indices(ref_samples, ref_curv, ref_i0, ref_i1)
+
+    def pack(smp, dist, brakes, start, turn, apex, exit_i):
+        bi = _brake_start_index(brakes, dist, start)
+        brake = None
+        if bi is not None:
+            brake = _phase(smp, dist, bi)
+            brake["metres_before"] = _r(dist[bi] - dist[start], 1)
+        return {"brake": brake, "turn_in": _phase(smp, dist, turn), "apex": _phase(smp, dist, apex), "exit": _phase(smp, dist, exit_i)}
+
+    subject = pack(subj_samples, subj_dist, [s["brake"] for s in subj_samples], i0, s_turn, s_apex, s_exit)
+    reference = pack(ref_samples, ref_dist, [s["brake"] for s in ref_samples], ref_i0, r_turn, r_apex, r_exit)
+
+    def later(s_idx: int, r_idx: int) -> float:
+        # where the player's point falls on the ghost's path, minus where the ghost's point is
+        return _r(ref_dist[matches[s_idx]] - ref_dist[r_idx], 1)
+
+    delta = {
+        "brake": (
+            _r(subject["brake"]["metres_before"] - reference["brake"]["metres_before"], 1)
+            if subject["brake"] and reference["brake"] else None
+        ),
+        "turn_in": later(s_turn, r_turn),
+        "apex": later(s_apex, r_apex),
+        "exit": later(s_exit, r_exit),
+    }
+    offset = {}
+    for name, s_idx in (("turn_in", s_turn), ("apex", s_apex), ("exit", s_exit)):
+        s = subj_samples[s_idx]
+        offset[name] = _r(_inside_offset(ref_samples, matches[s_idx], s["x"], s["z"], net_turn), 1)
+    return {"subject": subject, "reference": reference, "delta_m": delta, "offset_m": offset}
+
+
+def _build_corners(raw_points, matches, subj_samples, ref_samples, segments,
+                   subj_dist=None, ref_dist=None, subj_curv=None, ref_curv=None) -> list[dict]:
     corners = []
     for ref_i0, ref_i1, net_turn in segments:
         i0 = bisect_left(matches, ref_i0)
@@ -359,7 +483,7 @@ def _build_corners(raw_points, matches, subj_samples, ref_samples, segments) -> 
         sm, rm = _steer_metrics(subj_steer), _steer_metrics(ref_steer)
         corners.append({
             "corner_index": len(corners) + 1,
-            "direction": "right" if net_turn < 0 else "left",
+            "direction": _corner_direction(ref_steer, net_turn),
             "turn_deg": round(abs(net_turn)),
             "distance_start": _r(seg[0]["distance_m"], 1),
             "distance_end": _r(seg[-1]["distance_m"], 1),
@@ -376,6 +500,12 @@ def _build_corners(raw_points, matches, subj_samples, ref_samples, segments) -> 
             "reference_avg_steer": _r(rm["avg_abs"], 2),
             "subject_steer_reversals": sm["reversals"],
             "reference_steer_reversals": rm["reversals"],
+            **({"reference_distance_start": _r(ref_dist[ref_i0], 1), "reference_distance_end": _r(ref_dist[ref_i1], 1)}
+               if ref_dist is not None else {}),
+            **({"phases": _corner_phases(
+                raw_points, matches, subj_samples, ref_samples, subj_dist, ref_dist, subj_curv, ref_curv,
+                i0, i1, ref_i0, ref_i1, net_turn,
+            )} if subj_dist is not None else {}),
         })
     return corners
 
@@ -394,6 +524,8 @@ def _public_point(p: dict) -> dict:
         "reference_gas": _r(p["reference_gas"], 2),
         "x": _r(p["x"], 1),
         "z": _r(p["z"], 1),
+        "reference_x": _r(p["reference_x"], 1),
+        "reference_z": _r(p["reference_z"], 1),
     }
 
 
@@ -563,12 +695,20 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
             "reference_gas": r["gas"],
             "x": s["x"],
             "z": s["z"],
+            "reference_x": r["x"],
+            "reference_z": r["z"],
         })
 
     segments = _detect_corner_segments(ref_samples)
-    corners = _build_corners(raw_points, matches, subj_samples, ref_samples, segments)
+    ref_dist = _cumulative_distance(ref_samples)
+    subj_curv = _heading_and_curvature(subj_samples)[2]
+    ref_curv = _heading_and_curvature(ref_samples)[2]
+    corners = _build_corners(
+        raw_points, matches, subj_samples, ref_samples, segments,
+        subj_dist=subj_dist, ref_dist=ref_dist, subj_curv=subj_curv, ref_curv=ref_curv,
+    )
     sections = _build_sections(raw_points, matches, ref_samples, corners)
     points = [_public_point(p) for p in _downsample(raw_points, DOWNSAMPLE_POINTS)]
     stats = _aggregate_stats(subj_samples, ref_samples, raw_points, corners, subject, reference)
-    stats.update(_alignment_quality(deviations, subj_dist[-1], _cumulative_distance(ref_samples)[-1]))
+    stats.update(_alignment_quality(deviations, subj_dist[-1], ref_dist[-1]))
     return ComparisonResult(points=points, stats=stats, corners=corners, sections=sections)

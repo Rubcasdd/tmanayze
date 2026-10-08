@@ -13,6 +13,11 @@ coach that works from those measurements.
   speed difference, steering, brake/throttle), a colour-coded track map, per-section
   charts, and a corner table. Every graph has an Expand button, and the workspace can
   go full screen.
+- **Fullscreen track page:** open it from the track card on any map. It draws the whole
+  track at full size with your line and the ghosts' lines, and lets you zoom and pan.
+  Select a corner to zoom in and see exactly where the ghost brakes, turns in, hits the
+  apex and gets back on the throttle, with your markers next to it, how many metres
+  earlier or later you are, and how much wider or tighter your line is.
 - **Full world leaderboard:** page through every player, jump to a rank, or find where
   your own time sits (the board is searched by time, so it works on any map).
 - **What to focus on:** ranked, titled focus areas ("Carry more speed through the
