@@ -212,7 +212,66 @@ def focus_text(focus: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _format_instructions(insights: dict | None, previous: dict | None, telemetry: bool, depth: str) -> str:
+def corner_context_text(corners: list[dict], surfaces: dict[int, str] | None) -> str:
+    """For each corner: what it is driven on, how fast it is entered, and what that allows."""
+    from . import surface as surf
+
+    if not corners:
+        return ""
+    lines = [
+        "CORNER CONTEXT (surface measured from the map's blocks, so approximate; entry speed is the player's):"
+    ]
+    for c in corners:
+        s = (surfaces or {}).get(c["corner_index"], "unknown")
+        entry = c["subject_entry_speed"]
+        drift = s in surf.DRIFT_SURFACES and entry >= 180
+        if s == "unknown":
+            verdict = "surface unknown"
+        elif drift:
+            verdict = "a speed drift is possible here"
+        elif s not in surf.DRIFT_SURFACES:
+            verdict = "no speed drift on this surface"
+        else:
+            verdict = "too slow for a speed drift"
+        lines.append(
+            f"- Corner {c['corner_index']} ({c['direction']} {c['turn_deg']} deg, {c['distance_start']:.0f}-{c['distance_end']:.0f}m): "
+            f"{surf.LABELS.get(s, s)}; entered at {entry:.0f} km/h ({surf.band(entry)}); {surf.GRIP.get(s, '')}; {verdict}."
+        )
+    return "\n".join(lines)
+
+
+def input_scripts_text(corners: list[dict], wanted: list[int]) -> str:
+    """The steering/brake/lift script of the player and the ghost through the corners that matter."""
+    from . import inputs as inp
+
+    by_index = {c["corner_index"]: c for c in corners}
+    lines = ["INPUT SCRIPTS (what was pressed, in metres from each corner's start; steering positive = right):"]
+    n = 0
+    for idx in wanted:
+        c = by_index.get(idx)
+        if not c or "phases" not in c or "inputs" not in c["phases"]:
+            continue
+        i = c["phases"]["inputs"]
+        lines.append(f"- Corner {idx}: ghost: {inp.describe(i['reference'])}. Player: {inp.describe(i['subject'])}.")
+        n += 1
+    return "\n".join(lines) if n else ""
+
+
+def figures_text(corners: list[dict]) -> str:
+    """The pictures the report can include."""
+    lines = [
+        "FIGURES YOU CAN INCLUDE (each is a picture of that corner showing the player's line and the ghost's, the brake / "
+        "turn-in / apex / exit points, distance ticks, the surface and the input timeline). Put "
+        "{{figure:corner=N}} on its own line right after the bullets of the focus area it illustrates, for the 1-3 corners "
+        "that matter most and nowhere else; each at most once:"
+    ]
+    for c in corners:
+        lines.append(f"- {{{{figure:corner={c['corner_index']}}}}}: corner {c['corner_index']}, {c['direction']} {c['turn_deg']} deg at "
+                     f"{c['distance_start']:.0f}-{c['distance_end']:.0f}m, {_signed_secs(c['time_change_ms'])}")
+    return "\n".join(lines)
+
+
+def _format_instructions(insights: dict | None, previous: dict | None, telemetry: bool, depth: str, figures: bool = False) -> str:
     cfg = depth_config(depth)
     has_world = bool(insights and (insights.get("player_world_position") or insights.get("player_zone") or insights.get("world_leaderboard_top")))
 
@@ -254,6 +313,13 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         "**Expected payoff** (the time at stake - call it an upper bound; also say what number to look for in the next replay). "
         "If the player is already ahead of the ghost, focus on where they could extend the lead.",
     ]
+    if figures:
+        parts.append(
+            "Pictures are part of the report: whenever a focus area is about a corner listed under FIGURES YOU CAN INCLUDE, "
+            "finish it with that corner's tag, e.g. {{figure:corner=10}}, alone on the line after the **Expected payoff** bullet "
+            "(write the tag exactly, with the double curly braces). Use the corner number from the list, include 1-3 pictures in "
+            "total, and never a tag for a focus area that is a straight or section with no listed corner."
+        )
     if telemetry:
         parts.append(
             "- `## Steering comparison`: how the player's steering differs from the ghost's overall and in the key sections "
@@ -305,6 +371,9 @@ def build_user_prompt(
     depth: str = DEFAULT_DEPTH,
     signals: str = "",
     style_line: str = "",
+    surface_text: str = "",
+    inputs_text: str = "",
+    figures: str = "",
 ) -> str:
     subject_label, reference_label = _clean(subject_label), _clean(reference_label)
     out: list[str] = []
@@ -365,6 +434,13 @@ def build_user_prompt(
         f"biggest single lead: {_signed_secs(stats['max_time_gained_ms'])} at {stats['max_time_gained_at_pct']}%"
     )
 
+    if surface_text:
+        out.append("\n" + surface_text)
+    if inputs_text:
+        out.append("\n" + inputs_text)
+    if figures:
+        out.append("\n" + figures)
+
     if signals:
         out.append(
             "\nTECHNIQUE SIGNALS (measured from the raw telemetry; they say what each run DID, "
@@ -400,7 +476,7 @@ def build_user_prompt(
                 f"{p['subject_steer']:+.2f} vs {p['reference_steer']:+.2f}"
             )
 
-    out.append(_format_instructions(insights, previous, True, depth))
+    out.append(_format_instructions(insights, previous, True, depth, figures=bool(figures)))
     return "\n".join(out)
 
 

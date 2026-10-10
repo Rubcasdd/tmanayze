@@ -70,6 +70,22 @@ SIGNAL -> LIKELY CAUSE -> WHAT TO TRY
   straighten the car earlier so the throttle is fully available out of the corner.
 """
 
+SURFACE_SPEED_GUIDE = """\
+SURFACE AND SPEED (the app measures the surface under each corner from the map's blocks; use it)
+- Speed bands: under ~100 km/h is slow driving (low gears, lots of steering authority, no speed drifts);
+  100-180 km/h is below speed-drift speed; 180-340 km/h is the speed-drift window on a grippy surface;
+  340+ km/h is very fast, where tiny inputs matter and walls, loops and wallrides decide it.
+- tech / asphalt-like: the grippiest surface. Braking works, a speed drift is possible above ~180 km/h.
+- bumpy road: grippy but the bumps unsettle the car at speed; avoid large steering on the bumps, expect small hops.
+- plastic: reduced grip and slippery; smooth early inputs, treat speed drifts as unproven.
+- dirt: the car slides on its own; no speed drifts, braking scrubs more, steady steering through gear shifts.
+- grass: little grip and it slows the car; no speed drifts, keep inputs small.
+- ice: very little grip; no speed drifts, braking does little, steer early and gently.
+- water: slows the car a lot; keep it straight, keep the throttle down.
+- A technique only fits when the corner's surface and entry speed allow it: never suggest a speed drift on dirt,
+  grass, ice or water, or on a corner entered below ~180 km/h. Say what the surface and speed allow instead.
+"""
+
 STYLE_GUIDES = {
     "fullspeed": """\
 THIS IS A FULL-SPEED (FS) STYLE MAP
@@ -135,7 +151,7 @@ _TAG_STYLES = (
 )
 
 
-def detect_styles(tags: list[str] | None, features: dict | None) -> list[tuple[str, str]]:
+def detect_styles(tags: list[str] | None, features: dict | None, surface_share: dict | None = None) -> list[tuple[str, str]]:
     """Map styles for this run as (style, why). Tags from ManiaExchange come
     first; with no useful tags the ghost's own telemetry decides."""
     found: list[tuple[str, str]] = []
@@ -151,6 +167,12 @@ def detect_styles(tags: list[str] | None, features: dict | None) -> list[tuple[s
     if "bobsleigh" in seen and "ice" not in seen:
         found.append(("ice", "Bobsleigh maps are ice"))
         seen.add("ice")
+    # what the car actually drives on beats a loose tag: add a surface style when most of the lap is on it
+    for surf, style in (("ice", "ice"), ("dirt", "dirt"), ("grass", "grass")):
+        share = (surface_share or {}).get(surf, 0.0)
+        if share >= 0.4 and style not in seen:
+            found.append((style, f"{share * 100:.0f}% of the lap is on {surf} (from the map's blocks)"))
+            seen.add(style)
     f = features or {}
     if not seen and f:
         brake_pct = f.get("brake_pct", 0.0)
@@ -170,7 +192,7 @@ def style_text(styles: list[tuple[str, str]]) -> str:
 
 def technique_guide(styles: list[tuple[str, str]] | None = None) -> str:
     """The technique knowledge relevant to this map."""
-    parts = [TECHNIQUE_CORE]
+    parts = [TECHNIQUE_CORE, SURFACE_SPEED_GUIDE]
     for style, _why in styles or []:
         guide = STYLE_GUIDES.get(style)
         if guide:

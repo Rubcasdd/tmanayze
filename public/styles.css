@@ -483,6 +483,18 @@ td.neg { color: var(--gain); font-family: var(--font-mono); }
   .tv-panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
 }
 
+/* ---------------------------------------------------------------- figures in the coach's report */
+.fig { margin: 16px 0 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
+.fig svg { display: block; border-radius: 8px; }
+.fig figcaption { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
+.fig-slot { height: 0; }
+.tv-coach { background: rgba(212, 240, 60, 0.07); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 14px; color: var(--ink-2); }
+.tv-coach b { color: var(--ink); display: block; margin-bottom: 4px; }
+.tv-coach ul { margin: 4px 0 0; padding-left: 18px; }
+.tv-inputs svg { display: block; margin-top: 6px; border-radius: 6px; }
+.tv-surface { font-size: 13px; color: var(--ink-2); margin: 4px 0 8px; }
+.tv-surface i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+
 /* ---------------------------------------------------------------- narrow screens */
 @media (max-width: 1100px) {
   .map-layout { grid-template-columns: 1fr; }

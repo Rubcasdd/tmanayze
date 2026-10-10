@@ -22,6 +22,17 @@ coach that works from those measurements.
   list of jumps (air time, speed lost, air-braking) compared with the ghost, and a replay of both
   runs side by side with a scrubber and a follow camera. It's the "Track" tab of a map, and
   "Full page" opens it full screen.
+- **What's under the car:** the map file itself is read (its block list) to work out whether each
+  stretch is tech, plastic, dirt, grass, ice, bumps or water. The Track tab has a **Surface**
+  colour mode, every corner shows its surface, and the coach knows how speed and surface change
+  what works (no speed-drift advice on ice, how dirt and grass punish a late lift, and so on).
+- **What to press, and when:** for each corner the steering, brake and lift runs are extracted for
+  you and for the ghost and drawn along the metres of the corner, so you see "ghost steers left
+  0.7 for 1.1 s from 20 m before, you start 8 m later".
+- **Pictures in the coach's report:** the coach can place a figure of a corner in its report: your
+  line against the ghost's, the brake / turn-in / apex / exit points, distance ticks, the surface
+  and the input timeline. Each figure has a Save PNG button, and the coach's note shows up in the
+  Track tab next to that corner.
 - **Full world leaderboard:** page through every player, jump to a rank, or find where
   your own time sits (the board is searched by time, so it works on any map).
 - **What to focus on:** ranked, titled focus areas ("Carry more speed through the
@@ -161,6 +172,10 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
   path curvature, not noisy steering input), equal-distance **sections** with
   full-resolution traces, steering metrics, and an alignment check that warns
   when two runs don't follow the same route.
+- `backend/mapblocks.py`, `surface.py` — read the map's blocks (own Gbx map parser, no keys) and
+  turn them into a surface label for every point of the lap. It is an estimate: the labels come from
+  the nearest blocks, so custom or very unusual blocks may show as "unknown".
+- `backend/inputs.py` — the steering / brake / lift runs through each corner.
 - `backend/focus.py` — ranks the titled focus areas from the measured
   corners/sections (deterministic, no AI, so they always match the charts).
 - `backend/keypool.py`, `ratelimit.py` — the rotating key pool and per-visitor limits.
@@ -171,6 +186,7 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
 - `backend/mx_client.py`, `tmio_client.py`, `net.py` — ManiaExchange and
   trackmania.io clients (no keys needed). Every id that becomes part of an
   outbound URL is validated and downloads are size-capped.
+- `public/figures.js` — the corner pictures (SVG) used in the coach's report.
 - `public/` — the site (vanilla JS + Chart.js, no build step). `store.js` is the
   browser-side storage.
 

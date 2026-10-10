@@ -924,6 +924,27 @@ function renderComparison() {
   }
   renderHighlightChip();
   if (typeof TrackPage !== "undefined") TrackPage.onCompare();
+  ensureSurface();
+}
+
+// What the car drove on at each point of the lap, from the map's blocks. It arrives
+// after the comparison is drawn; the track view and the report figures use it when it's there.
+async function ensureSurface() {
+  const c = state.compare;
+  if (!c || !state.map) return;
+  const d = c.data[state.primaryRefId];
+  if (!d || !d.stats.telemetry || !d.points.length) return;
+  const key = `${state.map.map_uid}|${c.key}`;
+  if (state.surface && state.surface.key === key) return;
+  state.surface = { key, labels: null, available: false, pending: true };
+  try {
+    const res = await postJson("/api/surface", { map_uid: state.map.map_uid, points: d.points.map((p) => [p.x, p.y, p.z]) });
+    if (state.compare !== c) return; // a newer comparison replaced this one
+    state.surface = { key, labels: res.available ? res.surfaces : null, summary: res.summary || {}, available: !!res.available };
+  } catch {
+    state.surface = { key, labels: null, available: false };
+  }
+  if (typeof TrackPage !== "undefined") TrackPage.onSurface();
 }
 
 function renderStats(data, ids) {
@@ -1839,18 +1860,70 @@ const REPORT_SECTIONS = [
   "Skill assessment", "Where they stand", "Progress since last time",
 ];
 
+const FIGURE_TAG = /\{\{\s*figure\s*:\s*corner\s*=\s*(\d+)\s*\}\}/gi;
+
+// The model sometimes puts a figure tag under the wrong focus area. Move each tag to the end
+// of the `###` block that actually talks about that corner (when there is one).
+function relocateFigureTags(text) {
+  const tagLine = /^\{\{\s*figure\s*:\s*corner\s*=\s*(\d+)\s*\}\}$/i;
+  const tags = [];
+  const kept = [];
+  text.split("\n").forEach((l) => {
+    const m = l.trim().match(tagLine);
+    if (m) tags.push({ n: +m[1], at: kept.length });
+    else kept.push(l);
+  });
+  if (!tags.length) return text;
+  // each ### block runs until the next heading of any level
+  const blocks = [];
+  kept.forEach((l, i) => {
+    const t = l.trim();
+    if (blocks.length && /^#{1,6}\s/.test(t)) blocks[blocks.length - 1].end = i;
+    if (/^#{3,6}\s/.test(t)) blocks.push({ start: i, end: kept.length });
+  });
+  const inserts = new Map();
+  tags.forEach(({ n, at }) => {
+    const mention = new RegExp("\\bcorner\\s*" + n + "\\b", "i");
+    const own = blocks.find((b) => kept.slice(b.start, b.end).some((l) => mention.test(l)));
+    const before = [...blocks].reverse().find((b) => b.start < at);
+    const line = own ? own.end : before ? before.end : at;
+    inserts.set(line, [...(inserts.get(line) || []), "{{figure:corner=" + n + "}}"]);
+  });
+  const out = [];
+  kept.forEach((l, i) => {
+    (inserts.get(i) || []).forEach((t) => out.push("", t, ""));
+    out.push(l);
+  });
+  (inserts.get(kept.length) || []).forEach((t) => out.push("", t));
+  return out.join("\n");
+}
+
 function renderReport(text) {
+  text = relocateFigureTags(text);
+  state.coachByCorner = {};
+  let focusTitle = "";
+  let focusLines = [];
   const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/(^|[\s(])\*(?!\s)([^*]+?)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
   let html = "";
   let inList = false;
   const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line) { closeList(); continue; }
+    let line = raw.trim();
+    const figs = [...line.matchAll(FIGURE_TAG)].map((m) => +m[1]);
+    if (figs.length) line = line.replace(FIGURE_TAG, "").replace(/\s+/g, " ").trim();
+    const placeFigures = () => figs.forEach((n) => {
+      closeList();
+      html += `<div class="fig-slot" data-corner="${n}"></div>`;
+      if (!state.coachByCorner[n]) state.coachByCorner[n] = { title: focusTitle, lines: focusLines.slice(0, 4) };
+    });
+    if (!line) { closeList(); placeFigures(); continue; }
     const sub = line.match(/^#{3,6}\s*(?:\d+\.\s*)?(.+?)\s*#*$/);
     if (sub) {
       closeList();
-      html += `<h5>${esc(sub[1].replace(/\*\*/g, ""))}</h5>`;
+      focusTitle = sub[1].replace(/\*\*/g, "");
+      focusLines = [];
+      html += `<h5>${esc(focusTitle)}</h5>`;
+      placeFigures();
       continue;
     }
     const heading =
@@ -1860,12 +1933,31 @@ function renderReport(text) {
         return m && REPORT_SECTIONS.some((n) => m[1].toLowerCase().startsWith(n.toLowerCase())) ? m : null;
       })();
     const bullet = line.match(/^[-*•]\s+(.*)$/);
-    if (heading) { closeList(); html += `<h4>${esc(heading[1].replace(/\*\*/g, ""))}</h4>`; }
-    else if (bullet) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(bullet[1])}</li>`; }
+    if (heading) { closeList(); html += `<h4>${esc(heading[1].replace(/\*\*/g, ""))}</h4>`; focusTitle = ""; focusLines = []; }
+    else if (bullet) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(bullet[1])}</li>`; focusLines.push(bullet[1].replace(/\*\*/g, "")); }
     else { closeList(); html += `<p>${inline(line)}</p>`; }
+    placeFigures();
   }
   closeList();
   return html;
+}
+
+// Fill the figure placeholders the coach left in the report with the real pictures.
+function hydrateFigures(root) {
+  const slots = $$(".fig-slot", root);
+  if (!slots.length) return;
+  const d = state.compare && state.compare.data[state.primaryRefId];
+  if (!d) { slots.forEach((s) => s.remove()); return; }
+  const surf = state.surface && state.surface.labels && state.surface.labels.length === d.points.length ? state.surface.labels : null;
+  const seen = new Set();
+  slots.forEach((slot) => {
+    const n = +slot.dataset.corner;
+    const c = d.corners.find((x) => x.corner_index === n);
+    if (!c || seen.has(n)) return slot.remove();
+    seen.add(n);
+    slot.outerHTML = Figures.cornerCard(c, d, surf);
+  });
+  $$(".fig-save", root).forEach((b) => b.addEventListener("click", () => Figures.savePng(b.closest(".fig"))));
 }
 
 function memoryKey(subjectSummary) {
@@ -1906,6 +1998,8 @@ async function handleAnalyze() {
       depth: $("#depth-select").value,
     });
     report.innerHTML = renderReport(data.analysis);
+    hydrateFigures(report);
+    if (typeof TrackPage !== "undefined") TrackPage.onSurface();
     setStatus(statusEl, "Done.", "ok");
     showQuota(data.quota);
     if (data.memory) {

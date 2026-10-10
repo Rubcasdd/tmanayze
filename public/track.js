@@ -20,7 +20,7 @@ const TV_TEMPLATE = `
   <a class="btn quiet tv-back" hidden>&larr; Back to analysis</a>
   <h2 class="tv-title" hidden></h2>
   <div class="seg tv-dim" role="group" aria-label="View"><button type="button" class="on" data-dim="3d">3D</button><button type="button" data-dim="2d">2D map</button></div>
-  <div class="seg tv-color" role="group" aria-label="Colour your line by"><button type="button" class="on" data-mode="time">Time</button><button type="button" data-mode="speed">Speed</button><button type="button" data-mode="pedals">Pedals</button></div>
+  <div class="seg tv-color" role="group" aria-label="Colour your line by"><button type="button" class="on" data-mode="time">Time</button><button type="button" data-mode="speed">Speed</button><button type="button" data-mode="pedals">Pedals</button><button type="button" data-mode="surface">Surface</button></div>
   <label class="tv-check"><input type="checkbox" class="tv-ghost" checked /> Ghost lines</label>
   <label class="tv-check"><input type="checkbox" class="tv-markers" checked /> Markers</label>
   <label class="tv-check"><input type="checkbox" class="tv-ticks" checked /> Distances</label>
@@ -108,7 +108,24 @@ class TrackView {
       tMax: Math.max(pts[pts.length - 1].t_ms, refPath.length ? refPath[refPath.length - 1][0] : 0),
       flights: { you: d.subject_flights || [], ghost: d.reference_flights || [] },
     };
+    this.attachSurface();
     return this.data;
+  }
+
+  // what the car drove on at each point (from the map's blocks), if the server has sent it
+  attachSurface() {
+    const sf = state.surface, d = this.data;
+    d.surf = sf && sf.labels && sf.labels.length === d.pts.length ? sf.labels : null;
+  }
+
+  // the surface of a corner: the most common label between its start and end
+  cornerSurface(c) {
+    const d = this.data;
+    if (!d || !d.surf) return null;
+    const count = {};
+    d.pts.forEach((p, i) => { if (p.distance_m >= c.distance_start && p.distance_m <= c.distance_end) count[d.surf[i]] = (count[d.surf[i]] || 0) + 1; });
+    const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+    return best ? best[0] : null;
   }
 
   box() {
@@ -247,6 +264,14 @@ class TrackView {
       const lo = Math.min(...v), hi = Math.max(...v);
       v.forEach((s, i) => (cols[i] = mix("27405f", "8fc2ff", (s - lo) / Math.max(1, hi - lo))));
       legend = `<span>${Math.round(lo)} km/h</span><span class="ramp" style="background:linear-gradient(90deg,#27405f,#8fc2ff)"></span><span>${Math.round(hi)} km/h</span>`;
+    } else if (this.mode === "surface") {
+      if (d.surf) {
+        d.surf.forEach((sfc, i) => (cols[i] = Figures.SURFACE_COLORS[sfc] || "#555"));
+        const present = [...new Set(d.surf)];
+        legend = present.map((u) => `<span><i style="background:${Figures.SURFACE_COLORS[u] || "#555"}"></i>${Figures.SURFACE_NAMES[u] || u}</span>`).join("");
+      } else {
+        legend = `<span>${state.surface && state.surface.pending ? "Reading the map's blocks…" : "The surface isn't available for this map"}</span>`;
+      }
     } else {
       pts.forEach((p, i) => (cols[i] = p.subject_brake > 0.1 ? "#ff6252" : p.subject_gas < 0.9 ? "#f0b429" : "#3dd68c"));
       legend = `<span><i style="background:#3dd68c"></i>full throttle</span><span><i style="background:#f0b429"></i>throttle lifted</span><span><i style="background:#ff6252"></i>braking</span>`;
@@ -686,7 +711,15 @@ class TrackView {
       ${tile("Climb / drop", `+${Math.round(d.up)} / −${Math.round(d.down)} m`)}
       ${tile("Jumps", `${d.flights.you.length} (ghost ${d.flights.ghost.length})`)}
       ${tile("Top speed", `${Math.round(top)} km/h`)}
+      ${d.surf ? tile("Surface", this.surfaceSummary()) : ""}
     </dl>`;
+  }
+
+  surfaceSummary() {
+    const count = {};
+    this.data.surf.forEach((s) => (count[s] = (count[s] || 0) + 1));
+    return Object.entries(count).sort((a, b) => b[1] - a[1]).slice(0, 2)
+      .map(([s, n]) => `${Figures.SURFACE_NAMES[s] || s} ${Math.round((n / this.data.surf.length) * 100)}%`).join(", ");
   }
 
   distAt(tMs) {
@@ -725,15 +758,20 @@ class TrackView {
       const on = this.sel === c.corner_index, t = c.time_change_ms;
       let detail = "";
       if (on) {
-        const adv = this.advice(c), slope = this.slopeText(c);
+        const adv = this.advice(c), slope = this.slopeText(c), surf = this.cornerSurface(c);
+        const coach = state.coachByCorner && state.coachByCorner[c.corner_index];
         detail = `<div class="tv-detail">
+          ${coach ? `<div class="tv-coach"><b>Coach: ${esc(coach.title || "focus area")}</b>${coach.lines.length ? `<ul>${coach.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}</div>` : ""}
           ${slope ? `<p class="tv-slope">The track here is ${esc(slope)}.</p>` : ""}
+          ${surf ? `<p class="tv-surface"><i style="background:${Figures.SURFACE_COLORS[surf] || "#555"}"></i>Driven on ${esc(Figures.SURFACE_NAMES[surf] || surf)}.</p>` : ""}
           <table class="tv-table"><thead><tr><th></th><th>Ghost (ring)</th><th>You (dot)</th><th>Difference</th></tr></thead><tbody>${this.cornerRows(c)}</tbody></table>
           ${adv.how.length ? `<h4>How to take it</h4><ol>${adv.how.map((l) => `<li>${esc(l)}</li>`).join("")}</ol>` : ""}
           ${adv.diffs.length ? `<h4>Where you differ</h4><ul>${adv.diffs.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
+          <h4>What to press, and when</h4><div class="tv-inputs">${Figures.inputsStrip(c, 380, { bare: true })}</div>
         </div>`;
       }
-      const slope = c.grade_pct !== undefined && Math.abs(c.grade_pct) >= 1 ? ` · ${c.grade_pct > 0 ? "uphill" : "downhill"}` : "";
+      const cs = this.cornerSurface(c);
+      const slope = (c.grade_pct !== undefined && Math.abs(c.grade_pct) >= 1 ? ` · ${c.grade_pct > 0 ? "uphill" : "downhill"}` : "") + (cs ? ` · ${Figures.SURFACE_NAMES[cs] || cs}` : "");
       return `<div class="tv-corner ${on ? "on" : ""}">
         <button type="button" class="tv-corner-head" data-corner="${c.corner_index}">
           <span class="tv-num">${c.corner_index}</span>
@@ -1053,7 +1091,8 @@ class TrackView {
       tip.innerHTML = `<b>${Math.round(p.distance_m)} m</b>${cor ? ` · corner ${cor.corner_index}` : ""}<br>` +
         `you ${Math.round(p.subject_speed)} km/h · ghost ${Math.round(p.reference_speed)} km/h<br>` +
         `steer ${p.subject_steer >= 0 ? "+" : ""}${p.subject_steer.toFixed(2)} · throttle ${Math.round(p.subject_gas * 100)}% · brake ${Math.round(p.subject_brake * 100)}%<br>` +
-        `height ${Math.round(p.y)} m · ${Math.abs(grade) < 1 ? "flat" : `${grade > 0 ? "uphill" : "downhill"} ${Math.abs(grade).toFixed(0)}%`}<br>` +
+        `height ${Math.round(p.y)} m · ${Math.abs(grade) < 1 ? "flat" : `${grade > 0 ? "uphill" : "downhill"} ${Math.abs(grade).toFixed(0)}%`}` +
+        `${d.surf ? ` · on ${Figures.SURFACE_NAMES[d.surf[best]] || d.surf[best]}` : ""}<br>` +
         `<span class="${gap > 0 ? "loss" : "gain"}">${gap > 0 ? "+" : gap < 0 ? "−" : ""}${(Math.abs(gap) / 1000).toFixed(3)} s</span> to the ghost`;
     } else {
       this.hoverDist = null;
@@ -1063,6 +1102,14 @@ class TrackView {
   }
 
   // ---------------------------------------------------------------- lifecycle
+
+  updateSurface() {
+    if (!this.data) return;
+    this.attachSurface();
+    this.buildColors();
+    this.renderPanel();
+    this.draw();
+  }
 
   refresh() {
     const d = this.load();
@@ -1115,6 +1162,11 @@ const TrackPage = (() => {
     onCompare() {
       if (state.view === "track") this.refresh();
       else if (tab && tab.visible()) tab.refresh();
+    },
+    // the surface labels (or the coach's report) arrived: update without moving the camera
+    onSurface() {
+      if (page && state.view === "track") page.updateSurface();
+      if (tab) tab.updateSurface();
     },
   };
 })();

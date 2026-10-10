@@ -337,6 +337,22 @@ def find_techniques(s: dict, g: dict, subject_samples: list[dict]) -> list[dict]
     return sorted(out[:MAX_FINDINGS], key=lambda f: f["where_m"])
 
 
+def filter_by_surface(findings: list[dict], labels: list[str] | None, dist: list[float] | None) -> list[dict]:
+    """Drop speed-drift findings that sit on a surface where a speed drift can't work."""
+    if not labels or not dist:
+        return findings
+    from .surface import DRIFT_SURFACES, label_at
+
+    kept = []
+    for f in findings:
+        if f["technique"] in ("Speed drift", "Speed drift timing"):
+            surf = label_at(labels, dist, f["where_m"])
+            if surf not in DRIFT_SURFACES and surf != "unknown" and surf != "plastic":
+                continue
+        kept.append(f)
+    return kept
+
+
 def findings_text(findings: list[dict], styles: list[tuple[str, str]] | None) -> str:
     """The findings as prompt text, dropping speed drifts on surfaces where
     they don't work."""
