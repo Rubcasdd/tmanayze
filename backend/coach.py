@@ -262,8 +262,8 @@ def figures_text(corners: list[dict]) -> str:
     lines = [
         "FIGURES YOU CAN INCLUDE (each is a picture of that corner showing the player's line and the ghost's, the brake / "
         "turn-in / apex / exit points, distance ticks, the surface and the input timeline). Put "
-        "{{figure:corner=N}} on its own line right after the bullets of the focus area it illustrates, for the 1-3 corners "
-        "that matter most and nowhere else; each at most once:"
+        "{{figure:corner=N}} on its own line right after the bullets of the focus area it illustrates, for the corners "
+        "that matter most (two to four) and nowhere else; each at most once:"
     ]
     for c in corners:
         lines.append(f"- {{{{figure:corner={c['corner_index']}}}}}: corner {c['corner_index']}, {c['direction']} {c['turn_deg']} deg at "
@@ -317,8 +317,8 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         parts.append(
             "Pictures are part of the report: whenever a focus area is about a corner listed under FIGURES YOU CAN INCLUDE, "
             "finish it with that corner's tag, e.g. {{figure:corner=10}}, alone on the line after the **Expected payoff** bullet "
-            "(write the tag exactly, with the double curly braces). Use the corner number from the list, include 1-3 pictures in "
-            "total, and never a tag for a focus area that is a straight or section with no listed corner."
+            "(write the tag exactly, with the double curly braces). Use the corner number from the list, include a picture for every focus area that is a corner "
+            "(two to four in total), and never a tag for a focus area that is a straight or section with no listed corner."
         )
     if telemetry:
         parts.append(

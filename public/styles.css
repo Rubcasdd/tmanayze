@@ -488,6 +488,14 @@ td.neg { color: var(--gain); font-family: var(--font-mono); }
 .fig svg { display: block; border-radius: 8px; }
 .fig figcaption { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--muted); font-size: 13px; }
 .fig-slot { height: 0; }
+.fig-tips { margin: 2px 0 0; padding-left: 18px; font-size: 14px; color: var(--ink-2); }
+.fig-tips li { margin: 3px 0; }
+.fig-more h4 { margin: 24px 0 0; }
+.fig-modal { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.72); display: flex; align-items: flex-start; justify-content: center; overflow: auto; padding: 24px 12px; }
+.fig-modal-box { position: relative; width: min(760px, 100%); }
+.fig-modal-box .fig { margin: 0; max-width: none; }
+.fig-close { position: absolute; top: 8px; right: 8px; z-index: 2; }
+.tv-pic { margin-top: 8px; }
 .tv-coach { background: rgba(212, 240, 60, 0.07); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 14px; color: var(--ink-2); }
 .tv-coach b { color: var(--ink); display: block; margin-bottom: 4px; }
 .tv-coach ul { margin: 4px 0 0; padding-left: 18px; }

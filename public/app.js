@@ -1945,7 +1945,6 @@ function renderReport(text) {
 // Fill the figure placeholders the coach left in the report with the real pictures.
 function hydrateFigures(root) {
   const slots = $$(".fig-slot", root);
-  if (!slots.length) return;
   const d = state.compare && state.compare.data[state.primaryRefId];
   if (!d) { slots.forEach((s) => s.remove()); return; }
   const surf = state.surface && state.surface.labels && state.surface.labels.length === d.points.length ? state.surface.labels : null;
@@ -1957,6 +1956,17 @@ function hydrateFigures(root) {
     seen.add(n);
     slot.outerHTML = Figures.cornerCard(c, d, surf);
   });
+  // corners that cost the most time but didn't get a picture from the coach
+  const more = d.corners
+    .filter((c) => !seen.has(c.corner_index) && c.time_change_ms > 3 && c.phases)
+    .sort((a, b) => b.time_change_ms - a.time_change_ms)
+    .slice(0, Math.max(0, 4 - seen.size));
+  if (more.length) {
+    const box = document.createElement("div");
+    box.className = "fig-more";
+    box.innerHTML = `<h4>More corners where you lose time</h4>${more.map((c) => Figures.cornerCard(c, d, surf)).join("")}`;
+    root.appendChild(box);
+  }
   $$(".fig-save", root).forEach((b) => b.addEventListener("click", () => Figures.savePng(b.closest(".fig"))));
 }
 
