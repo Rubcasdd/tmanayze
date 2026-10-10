@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left, bisect_right
+
+from .inputs import corner_inputs
 from dataclasses import dataclass, field
 
 DOWNSAMPLE_POINTS = 700
@@ -470,7 +472,13 @@ def _corner_phases(raw_points, matches, subj_samples, ref_samples, subj_dist, re
     for name, s_idx in (("turn_in", s_turn), ("apex", s_apex), ("exit", s_exit)):
         s = subj_samples[s_idx]
         offset[name] = _r(_inside_offset(ref_samples, matches[s_idx], s["x"], s["z"], net_turn), 1)
-    return {"subject": subject, "reference": reference, "delta_m": delta, "offset_m": offset}
+    return {
+        "subject": subject, "reference": reference, "delta_m": delta, "offset_m": offset,
+        "inputs": {
+            "subject": corner_inputs(subj_samples, subj_dist, i0, i1),
+            "reference": corner_inputs(ref_samples, ref_dist, ref_i0, ref_i1),
+        },
+    }
 
 
 def _corner_slope(smp: list[dict], a: int, b: int) -> dict:

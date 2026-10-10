@@ -22,7 +22,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, tmio_client
+from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
 from . import coach_knowledge, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
@@ -263,6 +263,31 @@ def legacy_runs():
 
 # ------------------------------------------------------------------ comparing
 
+class SurfaceRequest(BaseModel):
+    map_uid: str
+    points: list[list[float]] = Field(max_length=4000)
+
+
+@app.post("/api/surface")
+def surface_for_points(body: SurfaceRequest):
+    """What the car was driving on at each of these [x, y, z] points, from the map's blocks."""
+    try:
+        net.valid_map_uid(body.map_uid)
+    except ValueError:
+        raise HTTPException(400, "invalid map uid") from None
+    pts = [(p[0], p[1], p[2]) for p in body.points if len(p) >= 3]
+    sm = surface_mod.get_surface_map(body.map_uid)
+    if sm is None or not pts:
+        return {"available": False, "surfaces": [], "summary": {}}
+    labels = sm.label(pts)
+    return {
+        "available": True,
+        "surfaces": labels,
+        "summary": surface_mod.summarize(labels),
+        "labels": surface_mod.LABELS,
+    }
+
+
 @app.post("/api/compare")
 def compare(body: CompareRequest):
     """One subject run against several references. Every comparison reuses
@@ -365,17 +390,46 @@ def analyze(
     # What each run did (jumps, airbrake, brake taps while steering, lifts) and
     # what kind of map this is, so the coach can name techniques, not just "go faster".
     signals_block, style_line, styles = "", "", []
+    surface_block, inputs_block, figures_block = "", "", ""
     if result.stats.get("telemetry"):
         try:
-            signals_block, features, tech_findings = signals_mod.signals_text(
-                subject.get("samples") or [], reference.get("samples") or []
-            )
+            samples = subject.get("samples") or []
+            labels = None
+            share: dict[str, float] = {}
+            if map_uid:
+                try:
+                    labels = surface_mod.surfaces_for_samples(map_uid, samples)
+                except Exception:
+                    labels = None
+            dist = signals_mod._cumulative_distance(samples)
+            corner_surf = surface_mod.corner_surfaces(labels, dist, result.corners) if labels else {}
+            if labels:
+                share = surface_mod.summarize(labels)
+                surface_block = (
+                    "SURFACE UNDER THE CAR over the whole lap (from the map's blocks, approximate): "
+                    + ", ".join(f"{surface_mod.LABELS.get(k, k)} {v * 100:.0f}%" for k, v in list(share.items())[:5])
+                    + ".\n" + coach.corner_context_text(result.corners, corner_surf)
+                )
+            else:
+                surface_block = (
+                    "SURFACE UNDER THE CAR: not available for this map, so don't assume one; say what you can't tell.\n"
+                    + coach.corner_context_text(result.corners, None)
+                )
+            wanted = [it["index"] for it in found["focus"] if it.get("kind") == "corner"][:6] or [
+                c["corner_index"] for c in sorted(result.corners, key=lambda c: -abs(c["time_change_ms"]))[:4]
+            ]
+            inputs_block = coach.input_scripts_text(result.corners, wanted)
+            figures_block = coach.figures_text(result.corners)
+
+            signals_block, features, tech_findings = signals_mod.signals_text(samples, reference.get("samples") or [])
+            tech_findings = signals_mod.filter_by_surface(tech_findings, labels, dist)
             map_tags = ((insights or {}).get("map") or {}).get("tags") or []
-            styles = techniques.detect_styles(map_tags, features)
+            styles = techniques.detect_styles(map_tags, features, share)
             style_line = techniques.style_text(styles)
             signals_block += "\n" + signals_mod.findings_text(tech_findings, styles)
         except Exception:  # never let a signal bug block the analysis
             signals_block, style_line, styles = "", "", []
+            surface_block, inputs_block, figures_block = "", "", ""
 
     reference_label = _label(reference, "ghost")
     map_name = subject.get("map_name") or ((insights or {}).get("map") or {}).get("name")
@@ -397,6 +451,9 @@ def analyze(
         depth=depth,
         signals=signals_block,
         style_line=style_line,
+        surface_text=surface_block,
+        inputs_text=inputs_block,
+        figures=figures_block,
     )
 
     # Count the analysis only when it uses the server's keys (a visitor's own
