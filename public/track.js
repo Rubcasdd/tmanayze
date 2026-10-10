@@ -767,7 +767,8 @@ class TrackView {
           <table class="tv-table"><thead><tr><th></th><th>Ghost (ring)</th><th>You (dot)</th><th>Difference</th></tr></thead><tbody>${this.cornerRows(c)}</tbody></table>
           ${adv.how.length ? `<h4>How to take it</h4><ol>${adv.how.map((l) => `<li>${esc(l)}</li>`).join("")}</ol>` : ""}
           ${adv.diffs.length ? `<h4>Where you differ</h4><ul>${adv.diffs.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
-          <h4>What to press, and when</h4><div class="tv-inputs">${Figures.inputsStrip(c, 380, { bare: true })}</div>
+          <h4>What to press, and when</h4><div class="tv-inputs">${Figures.inputsStrip(c, 560, { bare: true })}</div>
+          <button type="button" class="btn tiny tv-pic" data-corner="${c.corner_index}">Open the picture</button>
         </div>`;
       }
       const cs = this.cornerSurface(c);
@@ -785,6 +786,11 @@ class TrackView {
       <div class="tv-hint">Select one to fly in and see exactly where to brake, turn in and get back on the throttle. <kbd>←</kbd> <kbd>→</kbd> step through them.</div>${rows}
       ${this.jumpsHtml()}`;
     $$(".tv-corner-head", panel).forEach((b) => b.addEventListener("click", () => this.select(+b.dataset.corner)));
+    $$(".tv-pic", panel).forEach((b) => b.addEventListener("click", () => {
+      const raw = state.compare && state.compare.data[state.primaryRefId];
+      const c = raw && raw.corners.find((x) => x.corner_index === +b.dataset.corner);
+      if (c) Figures.modal(c, raw, this.data.surf);
+    }));
     $$(".tv-jump", panel).forEach((b) => b.addEventListener("click", () => this.focusJump(+b.dataset.i)));
     const prof = panel.querySelector(".tv-profile");
     prof.addEventListener("mousemove", (e) => { this.hoverDist = this.profileDist(e); this.draw(); });

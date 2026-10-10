@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_left, bisect_right
 
-from .inputs import corner_inputs
+from .inputs import corner_inputs, corner_trace
 from dataclasses import dataclass, field
 
 DOWNSAMPLE_POINTS = 700
@@ -477,6 +477,10 @@ def _corner_phases(raw_points, matches, subj_samples, ref_samples, subj_dist, re
         "inputs": {
             "subject": corner_inputs(subj_samples, subj_dist, i0, i1),
             "reference": corner_inputs(ref_samples, ref_dist, ref_i0, ref_i1),
+            "trace": {
+                "subject": corner_trace(subj_samples, subj_dist, i0, i1),
+                "reference": corner_trace(ref_samples, ref_dist, ref_i0, ref_i1),
+            },
         },
     }
 

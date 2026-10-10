@@ -46,15 +46,41 @@ def _groups(keys: list, gap: int = 1) -> list[tuple[int, int, object]]:
     return out
 
 
-def corner_inputs(samples: list[dict], dist: list[float], start: int, end: int) -> list[dict]:
+def lead_tail(samples: list[dict], start: int) -> tuple[float, float]:
+    """How far before / after a corner to look: at least 70 m / 30 m, and more on fast maps
+    (about 1.5 s of driving before it, half a second after)."""
+    ms = max(0.0, samples[start]["speed"]) / 3.6
+    return max(LEAD_M, min(320.0, 1.5 * ms)), max(TAIL_M, min(160.0, 0.6 * ms))
+
+
+def _window(samples: list[dict], dist: list[float], start: int, end: int) -> tuple[int, int]:
     n = len(samples)
-    base = dist[start]
+    lead, tail = lead_tail(samples, start)
     lo = start
-    while lo > 0 and base - dist[lo - 1] <= LEAD_M:
+    while lo > 0 and dist[start] - dist[lo - 1] <= lead:
         lo -= 1
     hi = end
-    while hi < n - 1 and dist[hi + 1] - dist[end] <= TAIL_M:
+    while hi < n - 1 and dist[hi + 1] - dist[end] <= tail:
         hi += 1
+    return lo, hi
+
+
+def corner_trace(samples: list[dict], dist: list[float], start: int, end: int, points: int = 64) -> list[list[float]]:
+    """The raw pedals and wheel through the corner as [metres from the corner's start, steer, brake, gas],
+    thinned to about `points` rows, for drawing the input chart."""
+    lo, hi = _window(samples, dist, start, end)
+    step = max(1, -(-(hi - lo + 1) // points))
+    base = dist[start]
+    rows = []
+    for i in range(lo, hi + 1, step):
+        s = samples[i]
+        rows.append([round(dist[i] - base, 1), round(s["steer"], 2), round(s["brake"], 2), round(s["gas"], 2)])
+    return rows
+
+
+def corner_inputs(samples: list[dict], dist: list[float], start: int, end: int) -> list[dict]:
+    base = dist[start]
+    lo, hi = _window(samples, dist, start, end)
     window = samples[lo:hi + 1]
     runs: list[dict] = []
 
