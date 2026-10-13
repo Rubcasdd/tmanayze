@@ -695,3 +695,49 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .gallery-more { align-self: center; grid-column: 1 / -1; justify-self: center; }
 #gallery-area .block-head { flex-wrap: wrap; gap: 8px 14px; }
 #gallery-area .seg { margin-left: auto; }
+
+/* skills in the run */
+.skills-card { margin-top: 4px; }
+.sk-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.sk-metric { background: rgba(17, 24, 39, 0.6); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; display: grid; grid-template-columns: 1fr auto; align-items: end; font-variant-numeric: tabular-nums; }
+.sk-metric small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.sk-metric b { font: 700 19px var(--font-mono); }
+.sk-metric span { color: var(--muted); font-size: 12px; }
+.sk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+.sk-card { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 6px; min-width: 0; }
+.sk-card.bad { border-left-color: var(--loss); }
+.sk-card.good { border-left-color: var(--gain); }
+.sk-card.open { background: var(--surface-2); border-color: var(--line-strong); }
+.sk-head { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 2px 12px; align-items: center; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; background: transparent; border: 0; padding: 11px 13px; }
+.sk-head:hover .sk-name { text-decoration: underline; text-underline-offset: 3px; }
+.sk-glyph { font: 700 22px var(--font-head); color: var(--accent); text-align: center; grid-row: 1 / 3; }
+.sk-card.bad .sk-glyph { color: var(--loss); }
+.sk-card.good .sk-glyph { color: var(--gain); }
+.sk-name { font-weight: 700; display: flex; flex-direction: column; line-height: 1.15; }
+.sk-name small { color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.sk-count { display: flex; flex-direction: column; align-items: center; min-width: 44px; line-height: 1; }
+.sk-count b { font: 700 24px var(--font-mono); }
+.sk-count i { font-style: normal; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+.sk-count.ghost b { color: var(--g1); }
+.sk-status { grid-column: 2 / -1; color: var(--ink-2); font-size: 12.5px; }
+.sk-card.bad .sk-status { color: var(--loss); }
+.sk-card.good .sk-status { color: var(--gain); }
+.sk-body { padding: 0 13px 13px 56px; display: flex; flex-direction: column; gap: 8px; }
+.sk-what, .sk-try { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.sk-try b { color: var(--ink); }
+.sk-events { display: flex; flex-direction: column; gap: 5px; }
+.sk-event { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 10px; align-items: baseline; text-align: left; font: inherit; font-size: 13px; color: var(--ink-2); cursor: pointer; background: rgba(10, 14, 23, 0.5); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 0 8px 8px 0; padding: 5px 9px; }
+.sk-event:hover { border-color: var(--ink-2); }
+.sk-event.you { border-left-color: var(--you); }
+.sk-event.ghost { border-left-color: var(--g1); }
+.sk-event.both { border-left-color: var(--accent); }
+.sk-event b { font-family: var(--font-mono); color: var(--ink); }
+.sk-event i { font-style: normal; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.sk-event > span { grid-column: 1 / -1; }
+.sk-event em { font-style: normal; font-weight: 700; color: var(--ink); margin-right: 6px; }
+.sk-unused { margin-top: 12px; }
+.sk-unused-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; margin-top: 8px; }
+.sk-ghosted { background: rgba(17, 24, 39, 0.5); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+.sk-ghosted b { color: var(--ink-2); }
+@media (max-width: 560px) { .sk-grid { grid-template-columns: 1fr; } .sk-body { padding-left: 13px; } }
+.sk-event .ground-chip { margin-left: 0; justify-self: start; }

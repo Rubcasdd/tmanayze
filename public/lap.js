@@ -320,6 +320,7 @@ function refreshGround() {
   const p = currentPrimary();
   renderRibbon(p);
   renderGround(p);
+  renderSkills(p);
   renderGallery(p);
   if (state.compare) renderCorners(state.compare.data);
   state.charts.forEach((c) => c.update("none"));
