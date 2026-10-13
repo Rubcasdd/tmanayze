@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import coach_knowledge, signals as signals_mod, techniques
+from . import coach_knowledge, driving as driving_mod, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -103,6 +103,13 @@ class Sample(BaseModel):
     steer: float
     gas: float
     brake: float
+    # the car's orientation, when the run was parsed with it (older stored runs don't have it)
+    fx: float | None = None
+    fy: float | None = None
+    fz: float | None = None
+    ux: float | None = None
+    uy: float | None = None
+    uz: float | None = None
 
 
 class RunPayload(BaseModel):
@@ -299,6 +306,12 @@ def compare(body: CompareRequest):
         subject_flights = signals_mod.public_flights(subject.get("samples") or [])
     except Exception:  # jumps are a bonus; never break the comparison over them
         subject_flights = []
+    try:
+        subject_driving = driving_mod.analyze(subject.get("samples") or [])
+    except Exception:  # landings, wall-rides and smoothness are extras too
+        subject_driving = None
+    points_by_ref: dict[str, list] = {}
+    flights_by_ref: dict[str, list] = {}
     for ref in body.references:
         reference = ref.as_run()
         result = compare_runs(subject, reference)
@@ -306,6 +319,12 @@ def compare(body: CompareRequest):
             reference_flights = signals_mod.public_flights(reference.get("samples") or [])
         except Exception:
             reference_flights = []
+        try:
+            ref_driving = driving_mod.analyze(reference.get("samples") or [])
+        except Exception:
+            ref_driving = None
+        points_by_ref[ref.id] = result.points
+        flights_by_ref[ref.id] = reference_flights
         found = focus.find_focus(result.stats, result.corners, result.sections)
         out[ref.id] = {
             "reference_label": _label(reference, "ghost"),
@@ -318,7 +337,14 @@ def compare(body: CompareRequest):
             "reference_path": result.reference_path,
             "subject_flights": subject_flights,
             "reference_flights": reference_flights,
+            "driving": {"subject": subject_driving, "reference": ref_driving},
         }
+    try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
+        moves = driving_mod.field_moves(points_by_ref, subject_flights, flights_by_ref)
+    except Exception:
+        moves = []
+    for entry in out.values():
+        entry["field_moves"] = moves
     return out
 
 
@@ -422,6 +448,15 @@ def analyze(
             figures_block = coach.figures_text(result.corners)
 
             signals_block, features, tech_findings = signals_mod.signals_text(samples, reference.get("samples") or [])
+            try:
+                s_drive = driving_mod.analyze(samples)
+                g_drive = driving_mod.analyze(reference.get("samples") or [])
+                extra = driving_mod.driving_text(s_drive, g_drive)
+                if extra:
+                    signals_block += "\n" + extra
+                tech_findings = tech_findings + driving_mod.landing_findings(s_drive, g_drive)
+            except Exception:
+                pass
             tech_findings = signals_mod.filter_by_surface(tech_findings, labels, dist)
             map_tags = ((insights or {}).get("map") or {}).get("tags") or []
             styles = techniques.detect_styles(map_tags, features, share)

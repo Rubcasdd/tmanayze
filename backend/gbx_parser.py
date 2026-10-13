@@ -366,6 +366,33 @@ def _find_vehicle_buffers(record: bytes, version: int) -> list[tuple[int, bytes]
 
 _POSITION = struct.Struct("<3f")
 _SPEED_RAW = struct.Struct("<h")
+_ROTATION = struct.Struct("<Hhh")  # angle, axis heading, axis pitch (at offset 59)
+
+
+def _orientation(buf: bytes) -> dict:
+    """The car's forward and up vectors. The game stores a rotation as an angle about an axis
+    given by two angles; the quaternion (axis * sin(angle), cos(angle)) turns the car's own axes
+    (z forward, y up) into the world's. Checked against real replays: forward matches the
+    direction of travel to ~0.99 and upside-down frames show up as up.y < 0."""
+    angle_raw, heading_raw, pitch_raw = _ROTATION.unpack_from(buf, 59)
+    angle = angle_raw / 65535.0 * math.pi
+    heading = heading_raw / 32767.0 * math.pi
+    pitch = pitch_raw / 32767.0 * (math.pi / 2)
+    ax, ay, az = math.cos(pitch) * math.cos(heading), math.cos(pitch) * math.sin(heading), math.sin(pitch)
+    s, w = math.sin(angle), math.cos(angle)
+    qx, qy, qz = ax * s, ay * s, az * s
+
+    def rotate(vx: float, vy: float, vz: float) -> tuple[float, float, float]:
+        cx, cy, cz = qy * vz - qz * vy, qz * vx - qx * vz, qx * vy - qy * vx
+        dx, dy, dz = qy * cz - qz * cy, qz * cx - qx * cz, qx * cy - qy * cx
+        return vx + 2 * (w * cx + dx), vy + 2 * (w * cy + dy), vz + 2 * (w * cz + dz)
+
+    f = rotate(0.0, 0.0, 1.0)
+    u = rotate(0.0, 1.0, 0.0)
+    return {
+        "fx": round(f[0], 3), "fy": round(f[1], 3), "fz": round(f[2], 3),
+        "ux": round(u[0], 3), "uy": round(u[1], 3), "uz": round(u[2], 3),
+    }
 
 
 def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
@@ -379,7 +406,7 @@ def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
     steer = (buf[14] / 255.0 - 0.5) * 2.0
     brake = buf[18] / 255.0
     gas = min(1.0, buf[15] / 255.0 + brake)
-    return {
+    sample = {
         "time_ms": time_ms,
         "x": round(x, 2),
         "y": round(y, 2),
@@ -389,3 +416,5 @@ def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
         "gas": round(gas, 2),
         "brake": round(brake, 2),
     }
+    sample.update(_orientation(buf))
+    return sample

@@ -107,6 +107,8 @@ class TrackView {
       refPath,
       tMax: Math.max(pts[pts.length - 1].t_ms, refPath.length ? refPath[refPath.length - 1][0] : 0),
       flights: { you: d.subject_flights || [], ghost: d.reference_flights || [] },
+      driving: d.driving || null,
+      moves: d.field_moves || [],
     };
     this.attachSurface();
     return this.data;
@@ -374,7 +376,7 @@ class TrackView {
       c.stroke();
     }
 
-    if (this.opt.jumps) this.drawJumps();
+    if (this.opt.jumps) { this.drawJumps(); this.drawMoves(); }
 
     // direction arrows
     c.fillStyle = "rgba(240,237,230,0.55)";
@@ -734,15 +736,66 @@ class TrackView {
     const d = this.data, near = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) < 45, used = new Set(), rows = [];
     const lost = (f) => f.speed_in - f.speed_out;
     const desc = (f) => `${f.duration_s.toFixed(1)} s air, ${lost(f) >= 1 ? `lost ${lost(f).toFixed(0)}` : lost(f) <= -1 ? `gained ${(-lost(f)).toFixed(0)}` : "no change in"} km/h${f.brake_s >= 0.05 ? `, air-braked ${f.brake_s.toFixed(2)} s` : ""}`;
+    const lands = (d.driving && d.driving.subject && d.driving.subject.landings) || [];
     d.flights.you.forEach((y) => {
       const gi = d.flights.ghost.findIndex((g, i) => !used.has(i) && near(y, g));
       if (gi >= 0) used.add(gi);
-      rows.push({ f: y, label: `at ${this.distAt(y.t_ms)} m`, text: `you ${desc(y)}${gi >= 0 ? ` · ghost ${desc(d.flights.ghost[gi])}` : " · the ghost stayed on the ground"}` });
+      const land = lands.find((l) => Math.hypot(l.x - y.end_x, l.z - y.end_z) < 25);
+      const how = land ? ` · ${land.text.replace(/ and lost .*$/, "")}` : "";
+      rows.push({ f: y, label: `at ${this.distAt(y.t_ms)} m`, text: `you ${desc(y)}${how}${gi >= 0 ? ` · ghost ${desc(d.flights.ghost[gi])}` : " · the ghost stayed on the ground"}` });
     });
     d.flights.ghost.forEach((g, i) => {
       if (!used.has(i)) rows.push({ f: g, label: "ghost", text: `ghost ${desc(g)} · you stayed on the ground` });
     });
     return rows;
+  }
+
+  movesHtml() {
+    const m = this.data.moves || [];
+    if (!m.length) return "";
+    const name = { cut: "Different line", jump: "Jump line", airbrake: "Air-brake spot" };
+    return `<h3 class="tv-h">What the ghosts do here</h3>` + m.map((x, i) => `<button type="button" class="tv-jump tv-move" data-i="${i}"><b>${esc(name[x.kind] || x.kind)} · ${Math.round(x.dist_m)} m</b> ${esc(x.text)}</button>`).join("");
+  }
+
+  focusMove(i) {
+    const m = this.data.moves[i];
+    if (!m) return;
+    const y = this.data.pts[this.pointAtDistance(m.dist_m)].y;
+    this.sel = null;
+    this.renderPanel();
+    if (this.dim === "2d") this.goTo({ cx: m.x, cz: m.z, scale: Math.min(this.W, this.H) / 180 });
+    else this.goTo({ tx: m.x, ty: y * this.opt.yex, tz: m.z, yaw: this.cam.yaw, pitch: 0.5, dist: 130 });
+  }
+
+  // flags for what the ghosts share, and your wall-rides picked out along the line
+  drawMoves() {
+    const c = this.ctx, d = this.data, pts = d.pts;
+    const sub = d.driving && d.driving.subject;
+    if (sub && sub.inverted && sub.inverted.length) {
+      c.strokeStyle = "#b07cff";
+      c.lineWidth = 3.5;
+      for (const w of sub.inverted) {
+        c.beginPath();
+        let pen = false;
+        for (let i = this.pointAtDistance(w.start_m); i <= this.pointAtDistance(w.end_m); i++) {
+          const s = this.P(pts[i].x, pts[i].y, pts[i].z);
+          if (!s) { pen = false; continue; }
+          if (pen) c.lineTo(s[0], s[1]); else c.moveTo(s[0], s[1]);
+          pen = true;
+        }
+        c.stroke();
+      }
+    }
+    const colour = { cut: "#ffb020", jump: "#b07cff", airbrake: "#3dd6d0" }, glyph = { cut: "↗", jump: "⤴", airbrake: "✈" };
+    for (const m of d.moves || []) {
+      const p = pts[this.pointAtDistance(m.dist_m)], s = this.P(m.x, p.y, m.z);
+      if (!s) continue;
+      c.beginPath(); c.arc(s[0], s[1], 11, 0, 6.3); c.fillStyle = "rgba(18,18,17,0.9)"; c.fill();
+      c.lineWidth = 2.5; c.strokeStyle = colour[m.kind] || "#ffb020"; c.stroke();
+      c.fillStyle = colour[m.kind] || "#ffb020";
+      c.font = "700 13px system-ui, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+      c.fillText(glyph[m.kind] || "↗", s[0], s[1] + 0.5);
+    }
   }
 
   jumpsHtml() {
@@ -768,6 +821,7 @@ class TrackView {
           ${adv.how.length ? `<h4>How to take it</h4><ol>${adv.how.map((l) => `<li>${esc(l)}</li>`).join("")}</ol>` : ""}
           ${adv.diffs.length ? `<h4>Where you differ</h4><ul>${adv.diffs.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
           <h4>What to press, and when</h4><div class="tv-inputs">${Figures.inputsStrip(c, 560, { bare: true })}</div>
+          <button type="button" class="btn tiny tv-share" data-corner="${c.corner_index}">Share card</button>
           <button type="button" class="btn tiny tv-pic" data-corner="${c.corner_index}">Open the picture</button>
         </div>`;
       }
@@ -784,14 +838,17 @@ class TrackView {
       <h3 class="tv-h">Height along the lap</h3><canvas class="tv-profile"></canvas>
       <h3 class="tv-h">Corners</h3>
       <div class="tv-hint">Select one to fly in and see exactly where to brake, turn in and get back on the throttle. <kbd>←</kbd> <kbd>→</kbd> step through them.</div>${rows}
+      ${this.movesHtml()}
       ${this.jumpsHtml()}`;
     $$(".tv-corner-head", panel).forEach((b) => b.addEventListener("click", () => this.select(+b.dataset.corner)));
+    $$(".tv-share", panel).forEach((b) => b.addEventListener("click", () => shareCorner(+b.dataset.corner)));
     $$(".tv-pic", panel).forEach((b) => b.addEventListener("click", () => {
       const raw = state.compare && state.compare.data[state.primaryRefId];
       const c = raw && raw.corners.find((x) => x.corner_index === +b.dataset.corner);
       if (c) Figures.modal(c, raw, this.data.surf);
     }));
-    $$(".tv-jump", panel).forEach((b) => b.addEventListener("click", () => this.focusJump(+b.dataset.i)));
+    $$(".tv-jump:not(.tv-move)", panel).forEach((b) => b.addEventListener("click", () => this.focusJump(+b.dataset.i)));
+    $$(".tv-move", panel).forEach((b) => b.addEventListener("click", () => this.focusMove(+b.dataset.i)));
     const prof = panel.querySelector(".tv-profile");
     prof.addEventListener("mousemove", (e) => { this.hoverDist = this.profileDist(e); this.draw(); });
     prof.addEventListener("mouseleave", () => { this.hoverDist = null; this.draw(); });

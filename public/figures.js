@@ -300,7 +300,7 @@ const Figures = (() => {
     return `<figure class="fig" data-corner="${c.corner_index}">${pic}${inputsStrip(c, 640)}
       ${list.length ? `<ul class="fig-tips">${list.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
       <figcaption><span>Corner ${c.corner_index}: your line against the ghost's, and what each of you pressed.</span>
-      <button type="button" class="btn tiny fig-save">Save image</button></figcaption></figure>`;
+      <span><button type="button" class="btn tiny fig-share">Share card</button> <button type="button" class="btn tiny fig-save">Save image</button></span></figcaption></figure>`;
   }
 
   // The whole card in a window over the page (used from the track view's corner list).

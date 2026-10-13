@@ -537,8 +537,20 @@ def _build_corners(raw_points, matches, subj_samples, ref_samples, segments,
     return corners
 
 
+_ORIENT = ("fx", "fy", "fz", "ux", "uy", "uz")
+
+
+def _orient(sample: dict, prefix: str) -> dict:
+    """The car's forward / up vectors, when the run has them."""
+    if sample.get("fx") is None or sample.get("ux") is None:
+        return {}
+    return {f"{prefix}{k}": sample[k] for k in _ORIENT}
+
+
 def _public_point(p: dict) -> dict:
+    extra = {k: _r(p[k], 2) for k in [*_ORIENT, *(f"reference_{k}" for k in _ORIENT)] if k in p}
     return {
+        **extra,
         "distance_m": _r(p["distance_m"], 1),
         "delta_ms": round(p["delta_ms"]),
         "subject_speed": _r(p["subject_speed"], 1),
@@ -730,6 +742,8 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
             "t_ms": s["time_ms"],
             "y": s["y"],
             "reference_y": r["y"],
+            **_orient(s, ""),
+            **_orient(r, "reference_"),
         })
 
     segments = _detect_corner_segments(ref_samples)
@@ -746,6 +760,8 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
     stats.update(_alignment_quality(deviations, subj_dist[-1], ref_dist[-1]))
     step = max(1, len(ref_samples) // DOWNSAMPLE_POINTS)
     reference_path = [
-        [s["time_ms"], _r(s["x"], 1), _r(s["y"], 1), _r(s["z"], 1)] for s in ref_samples[::step]
+        [s["time_ms"], _r(s["x"], 1), _r(s["y"], 1), _r(s["z"], 1)]
+        + ([_r(s[k], 2) for k in _ORIENT] if s.get("fx") is not None and s.get("ux") is not None else [])
+        for s in ref_samples[::step]
     ]
     return ComparisonResult(points=points, stats=stats, corners=corners, sections=sections, reference_path=reference_path)

@@ -184,9 +184,18 @@
             <div id="strength-cards" class="focus-grid strengths"></div>
           </div>
 
+          <div id="moves-area" hidden>
+            <div class="block-head">
+              <h2 class="section-title">Tricks, jumps and landings</h2>
+              <span class="hint">What the ghosts do that you don't, and how your landings went. Select one to see it on the graphs.</span>
+            </div>
+            <div id="moves-cards" class="focus-grid"></div>
+          </div>
+
           <div id="lap-area">
             <div class="block-head">
               <h2 class="section-title">The whole lap</h2>
+              <button type="button" class="btn tiny" id="share-lap">Share card</button>
               <span class="hint">All graphs share one distance axis. Hover any of them, or the track, to read both runs at that exact spot.</span>
             </div>
             <div class="highlight-chip" id="highlight-chip" hidden></div>
@@ -336,6 +345,7 @@
 <script src="store.js"></script>
 <script src="app.js"></script>
 <script src="figures.js"></script>
+<script src="share.js"></script>
 <script src="track.js"></script>
 </body>
 </html>

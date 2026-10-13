@@ -558,6 +558,7 @@ async function openMap(mapUid) {
   infoCache.set(mapUid, { name: detail.name, thumbnail_url: detail.thumbnail_url, authors: detail.authors, tags: detail.tags, difficulty: detail.difficulty });
 
   $("#open-track").href = `#/map/${mapUid}/track`;
+  $("#share-lap").onclick = () => { const c = shareContext(); if (c) Share.open("lap", c); };
   $("#map-title").textContent = detail.name;
   $("#crumb").textContent = detail.name;
   document.title = `${detail.name} · Trackmania Analyzer`;
@@ -910,6 +911,7 @@ function renderComparison() {
 
   renderStats(data, ids);
   renderFocus(primary);
+  renderMoves(primary);
   const chartable = ids.filter((id) => data[id].stats.telemetry);
   $("#chart-empty-note").hidden = chartable.length > 0;
   $("#lap-area").hidden = chartable.length === 0;
@@ -969,7 +971,8 @@ function renderStats(data, ids) {
       tile("Top speed", `${r0(s.subject_top_speed)} <small>vs ${r0(s.reference_top_speed)}</small>`, "", "km/h") +
       tile("Steering", `${r2(s.subject_avg_abs_steer)} <small>vs ${r2(s.reference_avg_abs_steer)}</small>`, "", `${shortStyle(s.subject_input_style)} vs ${shortStyle(s.reference_input_style)}`) +
       tile("Steer reversals", `${s.subject_steer_reversals} <small>vs ${s.reference_steer_reversals}</small>`) +
-      tile("Brake taps", `${s.subject_brake_events} <small>vs ${s.reference_brake_events}</small>`);
+      tile("Brake taps", `${s.subject_brake_events} <small>vs ${s.reference_brake_events}</small>`) +
+      calmTile(data[ids[0]], tile);
     return;
   }
 
@@ -979,20 +982,90 @@ function renderStats(data, ids) {
       const dot = `<span class="legend-line" style="--c:${s.telemetry ? ghostColor(id) : "#5a5851"}"></span> `;
       const label = `${dot}${esc(runLabel(id))}${id === state.primaryRefId ? ' <span class="hint">(coach uses this one)</span>' : ""}`;
       if (!s.telemetry) {
-        return `<tr class="dim"><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td><td colspan="4">time only, no telemetry</td></tr>`;
+        return `<tr class="dim"><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td><td colspan="5">time only, no telemetry</td></tr>`;
       }
       return `<tr><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td>
         <td>${fmtGap(s.corner_time_change_ms)}</td><td>${fmtGap(s.straight_time_change_ms)}</td>
         <td>${r0(s.subject_avg_speed)} vs ${r0(s.reference_avg_speed)}</td>
-        <td>${r2(s.subject_avg_abs_steer)} vs ${r2(s.reference_avg_abs_steer)} · ${s.subject_steer_reversals} vs ${s.reference_steer_reversals}</td></tr>`;
+        <td>${r2(s.subject_avg_abs_steer)} vs ${r2(s.reference_avg_abs_steer)} · ${s.subject_steer_reversals} vs ${s.reference_steer_reversals}</td>
+        <td>${calmPair(data[id])}</td></tr>`;
     })
     .join("");
   $("#stats-row").innerHTML = `<div class="stats-table-wrap" style="grid-column:1/-1"><table class="stats-table">
-    <thead><tr><th>Ghost</th><th>Gap</th><th>In corners</th><th>Between</th><th>Avg speed km/h</th><th>Steering avg · reversals</th></tr></thead>
+    <thead><tr><th>Ghost</th><th>Gap</th><th>In corners</th><th>Between</th><th>Avg speed km/h</th><th>Steering avg · reversals</th><th>Input calm (wheel)</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
 // ============================================================ focus areas & highlight
+
+function calmPair(entry) {
+  const d = entry.driving, s = d && d.subject && d.subject.smoothness, g = d && d.reference && d.reference.smoothness;
+  return s && g ? `${s.wheel} vs ${g.wheel}` : "–";
+}
+
+// How calm the wheel and pedals were, you against the ghost (a comparison, not a skill rating).
+function calmTile(entry, tile) {
+  const d = entry.driving, s = d && d.subject && d.subject.smoothness, g = d && d.reference && d.reference.smoothness;
+  if (!s || !g) return "";
+  return tile("Input calm", `${s.wheel} <small>vs ${g.wheel}</small>`, "", `wheel · pedals ${s.pedals} vs ${g.pedals} (0–100)`);
+}
+
+const MOVE_KINDS = {
+  cut: { icon: "↗", title: "Different line" },
+  jump: { icon: "⤴", title: "Jump line" },
+  airbrake: { icon: "✈", title: "Air-brake spot" },
+};
+
+// What the top ghosts share that you don't, how your landings went, and your wall-rides.
+// the data a share card needs
+function shareContext() {
+  const d = state.compare && state.compare.data[state.primaryRefId];
+  if (!d) return null;
+  const surf = state.surface && state.surface.labels && state.surface.labels.length === d.points.length ? state.surface.labels : null;
+  return { data: d, surf, mapName: (state.map && (state.map.name || state.map.map_name)) || "Trackmania", subject: runLabel(state.subjectId), reference: runLabel(state.primaryRefId) };
+}
+
+function shareCorner(index) {
+  const ctx = shareContext();
+  const c = ctx && ctx.data.corners.find((x) => x.corner_index === index);
+  if (c) Share.open("corner", { ...ctx, corner: c });
+}
+
+function renderMoves(primary) {
+  const area = $("#moves-area");
+  const cards = [];
+  if (primary && primary.stats.telemetry) {
+    for (const m of primary.field_moves || []) {
+      const k = MOVE_KINDS[m.kind] || MOVE_KINDS.cut;
+      cards.push({ icon: k.icon, title: k.title, at: m.dist_m, tag: m.of > 1 ? `${m.agree} of ${m.of} ghosts` : "ghost", text: m.text, cls: "" });
+    }
+    const dr = primary.driving;
+    const mine = dr && dr.subject;
+    if (mine && mine.oriented) {
+      for (const l of mine.landings) {
+        if (l.duration_s < 0.5) continue;
+        const mate = ((dr.reference && dr.reference.landings) || []).reduce((best, g) => (!best || Math.abs(g.dist_m - l.dist_m) < Math.abs(best.dist_m - l.dist_m) ? g : best), null);
+        const ghost = mate && Math.abs(mate.dist_m - l.dist_m) < 60 ? ` The ghost ${mate.text}.` : "";
+        cards.push({ icon: l.flip ? "⟳" : "⤓", title: l.flip ? "Flip" : "Landing", at: l.dist_m, tag: `${l.duration_s.toFixed(1)} s air`, text: `You ${l.text}.${ghost}`, cls: l.clean && l.speed_lost < 12 ? "good" : "bad" });
+      }
+      for (const w of mine.inverted) cards.push({ icon: "◐", title: w.kind === "upside down" ? "Upside down" : "Wall ride", at: w.dist_m, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m`, text: `You ${w.text}.`, cls: "" });
+    }
+  }
+  cards.sort((a, b) => a.at - b.at);
+  area.hidden = cards.length === 0;
+  if (!cards.length) return;
+  $("#moves-cards").innerHTML = cards.map((c, i) => `<button type="button" class="move-card ${c.cls}" data-at="${c.at}" data-title="${esc(c.title)}">
+      <span class="move-icon">${c.icon}</span><span class="move-title">${esc(c.title)} · ${Math.round(c.at)} m</span><span class="move-tag">${esc(c.tag)}</span>
+      <span class="move-text">${esc(c.text)}</span></button>`).join("");
+  $$(".move-card", area).forEach((card) =>
+    card.addEventListener("click", () => {
+      const at = +card.dataset.at, from = Math.max(0, at - 40), to = at + 40;
+      const same = state.highlight && state.highlight.from === from && state.highlight.to === to;
+      setHighlight(same ? null : { from, to, title: card.dataset.title, section: null });
+      if (!same) $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+    })
+  );
+}
 
 function focusCard(item, kind) {
   const secs = Math.abs(item.time_change_ms / 1000).toFixed(2);
@@ -1967,6 +2040,7 @@ function hydrateFigures(root) {
     box.innerHTML = `<h4>More corners where you lose time</h4>${more.map((c) => Figures.cornerCard(c, d, surf)).join("")}`;
     root.appendChild(box);
   }
+  $$(".fig-share", root).forEach((b) => b.addEventListener("click", () => shareCorner(+b.closest(".fig").dataset.corner)));
   $$(".fig-save", root).forEach((b) => b.addEventListener("click", () => Figures.savePng(b.closest(".fig"))));
 }
 

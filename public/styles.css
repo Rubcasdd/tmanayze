@@ -284,6 +284,25 @@ select { padding-right: 6px; }
 .stat .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .stats-table-wrap { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 4px 8px; overflow-x: auto; }
 
+/* share cards */
+.share-box { width: min(980px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.share-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.share-actions .share-close { margin-left: auto; }
+.share-note { flex: 1; min-width: 160px; }
+
+/* tricks, jumps and landings */
+.move-card { display: grid; grid-template-columns: 34px 1fr auto; gap: 4px 14px; align-items: start; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 12px 14px; }
+.move-card:hover { border-color: var(--ink-2); border-left-color: var(--accent); }
+.move-card.on { background: var(--surface-2); border-color: var(--ink); }
+.move-card.bad { border-left-color: var(--loss); }
+.move-card.good { border-left-color: var(--gain); }
+.move-icon { font-family: var(--font-head); font-size: 22px; font-weight: 700; line-height: 1; color: var(--accent); }
+.move-card.bad .move-icon { color: var(--loss); }
+.move-card.good .move-icon { color: var(--gain); }
+.move-title { font-weight: 700; }
+.move-tag { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.move-text { grid-column: 2 / 4; color: var(--ink-2); font-size: 14px; }
+
 /* focus */
 .focus-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 .focus-grid.strengths { margin-top: 12px; }
