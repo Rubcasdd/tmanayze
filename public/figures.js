@@ -9,12 +9,12 @@
 // Relies on app.js for state, esc, ghostColor.
 
 const Figures = (() => {
-  const INK = "#f0ede6", MUTED = "#8a867d", PANEL = "#1a1a19", LINE = "#2e2d2a";
+  const INK = "#eef2fb", MUTED = "#7d8aa6", PANEL = "#111827", LINE = "#223049";
   const GHOST = "#4aa3ff";
   const KINDS = [
-    { key: "brake", label: "BRAKE", color: "#f0b429" },
-    { key: "turn_in", label: "TURN IN", color: "#3dd68c" },
-    { key: "apex", label: "APEX", color: "#f0ede6" },
+    { key: "brake", label: "BRAKE", color: "#ffc247" },
+    { key: "turn_in", label: "TURN IN", color: "#2fe3a2" },
+    { key: "apex", label: "APEX", color: "#eef2fb" },
     { key: "exit", label: "BACK ON THROTTLE", color: "#4aa3ff" },
   ];
 
@@ -126,7 +126,7 @@ const Figures = (() => {
     panels.forEach((p) => {
       const mid = p.y + p.h / 2;
       s += `<rect x="${left}" y="${p.y}" width="${plotW}" height="${p.h}" rx="4" fill="rgba(255,255,255,0.025)"/>`;
-      s += `<rect x="${f1(X(0))}" y="${p.y}" width="${f1(Math.max(0, X(span) - X(0)))}" height="${p.h}" fill="rgba(240,237,230,0.06)"/>`;
+      s += `<rect x="${f1(X(0))}" y="${p.y}" width="${f1(Math.max(0, X(span) - X(0)))}" height="${p.h}" fill="rgba(238,242,251,0.06)"/>`;
       for (let m = Math.ceil(lo / step) * step; m <= hi; m += step) s += `<line x1="${f1(X(m))}" y1="${p.y}" x2="${f1(X(m))}" y2="${p.y + p.h}" stroke="${LINE}"/>`;
       s += text(p.label, 8, mid, { size: 11, fill: MUTED, weight: 500, halo: 0 });
       if (p.key === "steer") {
@@ -240,7 +240,7 @@ const Figures = (() => {
       const len = Math.hypot(x2 - x, y2 - y) || 1, nx = -(y2 - y) / len, ny = (x2 - x) / len;
       s += `<line x1="${f1(x - nx * 12)}" y1="${f1(y - ny * 12)}" x2="${f1(x + nx * 12)}" y2="${f1(y + ny * 12)}" stroke="${INK}" stroke-opacity="0.8" stroke-width="2"/>`;
       const lyy = y + ny * 18, lxx = Math.min(W - 40, Math.max(40, x + nx * 18));
-      if (lyy > top + 4 && lyy < mapH - 8) s += text(`${m} m`, lxx, lyy, { size: 10, fill: "#bdb9af", anchor: "middle", weight: 500 });
+      if (lyy > top + 4 && lyy < mapH - 8) s += text(`${m} m`, lxx, lyy, { size: 10, fill: "#b4bfd6", anchor: "middle", weight: 500 });
     }
 
     // the points, numbered: ring = ghost, dot = you, joined by a dashed line
@@ -268,7 +268,7 @@ const Figures = (() => {
 
     // title
     s += text(`Corner ${c.corner_index}  ·  ${name(c)} ${c.turn_deg}°  ·  ${Math.round(c.distance_start)}–${Math.round(c.distance_end)} m`, 14, 16, { size: 15, weight: 700, halo: 0 });
-    s += text(`${secs(c.time_change_ms)} in this corner  ·  slowest ${km(c.subject_min_speed)} (you) vs ${km(c.reference_min_speed)} (ghost)`, 14, 38, { size: 12, fill: c.time_change_ms > 0 ? "#ff6252" : "#3dd68c", weight: 500, halo: 0 });
+    s += text(`${secs(c.time_change_ms)} in this corner  ·  slowest ${km(c.subject_min_speed)} (you) vs ${km(c.reference_min_speed)} (ghost)`, 14, 38, { size: 12, fill: c.time_change_ms > 0 ? "#ff5a73" : "#2fe3a2", weight: 500, halo: 0 });
     // legend and scale
     const ly = mapH - 16;
     s += `<line x1="14" y1="${ly}" x2="40" y2="${ly}" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>` + text("you", 46, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
@@ -328,7 +328,7 @@ const Figures = (() => {
     canvas.width = width * scale; canvas.height = Math.round(total * scale);
     const ctx = canvas.getContext("2d");
     ctx.scale(scale, scale);
-    ctx.fillStyle = "#121211"; ctx.fillRect(0, 0, width, total);
+    ctx.fillStyle = "#0a0e17"; ctx.fillRect(0, 0, width, total);
     let y = 0, done = 0;
     svgs.forEach((svg, i) => {
       const img = new Image();

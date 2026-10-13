@@ -9,9 +9,9 @@
 // Relies on app.js for shared state and helpers (state, $, $$, esc, tmName...).
 
 const TRACK_KINDS = [
-  { key: "brake", label: "Brake", color: "#f0b429" },
-  { key: "turn_in", label: "Turn in", color: "#3dd68c" },
-  { key: "apex", label: "Apex", color: "#f0ede6" },
+  { key: "brake", label: "Brake", color: "#ffc247" },
+  { key: "turn_in", label: "Turn in", color: "#2fe3a2" },
+  { key: "apex", label: "Apex", color: "#eef2fb" },
   { key: "exit", label: "Back on throttle", color: "#4aa3ff" },
 ];
 
@@ -20,7 +20,7 @@ const TV_TEMPLATE = `
   <a class="btn quiet tv-back" hidden>&larr; Back to analysis</a>
   <h2 class="tv-title" hidden></h2>
   <div class="seg tv-dim" role="group" aria-label="View"><button type="button" class="on" data-dim="3d">3D</button><button type="button" data-dim="2d">2D map</button></div>
-  <div class="seg tv-color" role="group" aria-label="Colour your line by"><button type="button" class="on" data-mode="time">Time</button><button type="button" data-mode="speed">Speed</button><button type="button" data-mode="pedals">Pedals</button><button type="button" data-mode="surface">Surface</button></div>
+  <div class="seg tv-color" role="group" aria-label="Colour your line by"><button type="button" class="on" data-mode="time">Time</button><button type="button" data-mode="speed">Speed</button><button type="button" data-mode="pedals">Pedals</button><button type="button" data-mode="surface">Ground</button></div>
   <label class="tv-check"><input type="checkbox" class="tv-ghost" checked /> Ghost lines</label>
   <label class="tv-check"><input type="checkbox" class="tv-markers" checked /> Markers</label>
   <label class="tv-check"><input type="checkbox" class="tv-ticks" checked /> Distances</label>
@@ -259,9 +259,9 @@ class TrackView {
       const scale = Math.max(5, sorted[Math.floor(sorted.length * 0.95)] || 5);
       slope.forEach((v, i) => {
         const t = Math.max(-1, Math.min(1, v / scale));
-        cols[i] = t >= 0 ? mix("6b675f", "ff6252", t) : mix("6b675f", "3dd68c", -t);
+        cols[i] = t >= 0 ? mix("59668a", "ff5a73", t) : mix("59668a", "2fe3a2", -t);
       });
-      legend = `<span>gaining time</span><span class="ramp" style="background:linear-gradient(90deg,#3dd68c,#6b675f,#ff6252)"></span><span>losing time</span>`;
+      legend = `<span>gaining time</span><span class="ramp" style="background:linear-gradient(90deg,#2fe3a2,#59668a,#ff5a73)"></span><span>losing time</span>`;
     } else if (this.mode === "speed") {
       const v = pts.map((p) => p.subject_speed);
       const lo = Math.min(...v), hi = Math.max(...v);
@@ -276,8 +276,8 @@ class TrackView {
         legend = `<span>${state.surface && state.surface.pending ? "Reading the map's blocks…" : "The surface isn't available for this map"}</span>`;
       }
     } else {
-      pts.forEach((p, i) => (cols[i] = p.subject_brake > 0.1 ? "#ff6252" : p.subject_gas < 0.9 ? "#f0b429" : "#3dd68c"));
-      legend = `<span><i style="background:#3dd68c"></i>full throttle</span><span><i style="background:#f0b429"></i>throttle lifted</span><span><i style="background:#ff6252"></i>braking</span>`;
+      pts.forEach((p, i) => (cols[i] = p.subject_brake > 0.1 ? "#ff5a73" : p.subject_gas < 0.9 ? "#ffc247" : "#2fe3a2"));
+      legend = `<span><i style="background:#2fe3a2"></i>full throttle</span><span><i style="background:#ffc247"></i>throttle lifted</span><span><i style="background:#ff5a73"></i>braking</span>`;
     }
     this.colors = cols;
     this.q(".tv-legend").innerHTML = legend;
@@ -296,13 +296,13 @@ class TrackView {
     return true;
   }
 
-  text(t, x, y, color = "#f0ede6", size = 12, align = "left") {
+  text(t, x, y, color = "#eef2fb", size = 12, align = "left") {
     const c = this.ctx;
     c.font = `600 ${size}px "Barlow", system-ui, sans-serif`;
     c.textAlign = align;
     c.textBaseline = "middle";
     c.lineWidth = 3;
-    c.strokeStyle = "rgba(18,18,17,0.85)";
+    c.strokeStyle = "rgba(10,14,23,0.85)";
     c.strokeText(t, x, y);
     c.fillStyle = color;
     c.fillText(t, x, y);
@@ -351,7 +351,7 @@ class TrackView {
     // halo under the selected corner
     if (sel) {
       const i0 = this.pointAtDistance(sel.distance_start), i1 = this.pointAtDistance(sel.distance_end);
-      c.strokeStyle = "rgba(240,237,230,0.22)";
+      c.strokeStyle = "rgba(238,242,251,0.22)";
       c.lineWidth = 22;
       c.beginPath();
       let pen = false;
@@ -381,7 +381,7 @@ class TrackView {
     this.drawCheckpoints();
 
     // direction arrows
-    c.fillStyle = "rgba(240,237,230,0.55)";
+    c.fillStyle = "rgba(238,242,251,0.55)";
     for (let i = 12; i < n - 1; i += 28) {
       if (!pp[i] || !pp[i + 1]) continue;
       const a = Math.atan2(pp[i + 1][1] - pp[i][1], pp[i + 1][0] - pp[i][0]);
@@ -396,8 +396,8 @@ class TrackView {
     this.drawBadges(sel);
 
     const s0 = pp[0], s1 = pp[n - 1];
-    if (s0) { c.fillStyle = "#f0ede6"; c.beginPath(); c.arc(s0[0], s0[1], 6, 0, 6.3); c.fill(); this.text("START", s0[0] + 10, s0[1]); }
-    if (s1) { c.strokeStyle = "#d4f03c"; c.lineWidth = 3; c.strokeRect(s1[0] - 6, s1[1] - 6, 12, 12); this.text("FINISH", s1[0] + 10, s1[1], "#d4f03c"); }
+    if (s0) { c.fillStyle = "#eef2fb"; c.beginPath(); c.arc(s0[0], s0[1], 6, 0, 6.3); c.fill(); this.text("START", s0[0] + 10, s0[1]); }
+    if (s1) { c.strokeStyle = "#8f7bff"; c.lineWidth = 3; c.strokeRect(s1[0] - 6, s1[1] - 6, 12, 12); this.text("FINISH", s1[0] + 10, s1[1], "#8f7bff"); }
 
     if (sel && sel.phases && this.opt.markers) this.drawMarkers(sel);
     this.drawReplay();
@@ -405,8 +405,8 @@ class TrackView {
     if (this.hoverDist !== null) {
       const i = this.pointAtDistance(this.hoverDist);
       if (pp[i]) {
-        c.beginPath(); c.arc(pp[i][0], pp[i][1], 7, 0, 6.3); c.fillStyle = "#f0ede6"; c.fill();
-        c.lineWidth = 2; c.strokeStyle = "#121211"; c.stroke();
+        c.beginPath(); c.arc(pp[i][0], pp[i][1], 7, 0, 6.3); c.fillStyle = "#eef2fb"; c.fill();
+        c.lineWidth = 2; c.strokeStyle = "#0a0e17"; c.stroke();
       }
     }
     if (!is3d) this.drawScaleBar();
@@ -422,7 +422,7 @@ class TrackView {
     const x0 = Math.floor((b.minX - span * 0.08) / step) * step, x1 = Math.ceil((b.maxX + span * 0.08) / step) * step;
     const z0 = Math.floor((b.minZ - span * 0.08) / step) * step, z1 = Math.ceil((b.maxZ + span * 0.08) / step) * step;
     c.lineWidth = 1;
-    c.strokeStyle = "rgba(240,237,230,0.07)";
+    c.strokeStyle = "rgba(238,242,251,0.07)";
     c.beginPath();
     for (let x = x0; x <= x1; x += step) {
       const a = this.P(x, y0, z0), e = this.P(x, y0, z1);
@@ -445,7 +445,7 @@ class TrackView {
       pen = true;
     }
     c.stroke();
-    c.strokeStyle = "rgba(240,237,230,0.1)";
+    c.strokeStyle = "rgba(238,242,251,0.1)";
     c.beginPath();
     for (let i = 0; i < pts.length; i += 7) {
       const a = pp[i], g = this.P(pts[i].x, y0, pts[i].z);
@@ -463,10 +463,10 @@ class TrackView {
       const a = pp[i], b = pp[j];
       if (!a || !b) continue;
       const vx = b[0] - a[0], vy = b[1] - a[1], len = Math.hypot(vx, vy) || 1, nx = -vy / len, ny = vx / len;
-      c.strokeStyle = "rgba(240,237,230,0.8)";
+      c.strokeStyle = "rgba(238,242,251,0.8)";
       c.lineWidth = 2;
       c.beginPath(); c.moveTo(a[0] - nx * 12, a[1] - ny * 12); c.lineTo(a[0] + nx * 12, a[1] + ny * 12); c.stroke();
-      if ([1, 2, 4, 8].includes(k)) this.text(`${25 * k} m before`, a[0] + nx * 16, a[1] + ny * 16, "#bdb9af", 11);
+      if ([1, 2, 4, 8].includes(k)) this.text(`${25 * k} m before`, a[0] + nx * 16, a[1] + ny * 16, "#b4bfd6", 11);
     }
   }
 
@@ -479,12 +479,12 @@ class TrackView {
       if (!s) return;
       const on = sel && sel.corner_index === cor.corner_index, r = on ? 14 : 11, yy = s[1] - (on ? 28 : 20);
       c.beginPath(); c.arc(s[0], yy, r, 0, 6.3);
-      c.fillStyle = on ? "#d4f03c" : "rgba(18,18,17,0.88)";
+      c.fillStyle = on ? "#8f7bff" : "rgba(10,14,23,0.88)";
       c.fill();
       c.lineWidth = 1.5;
-      c.strokeStyle = on ? "#d4f03c" : "rgba(240,237,230,0.6)";
+      c.strokeStyle = on ? "#8f7bff" : "rgba(238,242,251,0.6)";
       c.stroke();
-      this.text(String(cor.corner_index), s[0], yy, on ? "#151a00" : "#f0ede6", on ? 14 : 11, "center");
+      this.text(String(cor.corner_index), s[0], yy, on ? "#0f0a2e" : "#eef2fb", on ? 14 : 11, "center");
     });
   }
 
@@ -508,7 +508,7 @@ class TrackView {
       if (g) {
         const a = this.P(g.x, g.y, g.z);
         if (a) {
-          c.beginPath(); c.arc(a[0], a[1], 9, 0, 6.3); c.fillStyle = "rgba(18,18,17,0.7)"; c.fill();
+          c.beginPath(); c.arc(a[0], a[1], 9, 0, 6.3); c.fillStyle = "rgba(10,14,23,0.7)"; c.fill();
           c.lineWidth = 3; c.strokeStyle = k.color; c.stroke();
           const ly = a[1] - 46 + idx * 17;
           c.strokeStyle = k.color; c.globalAlpha = 0.5; c.lineWidth = 1;
@@ -521,7 +521,7 @@ class TrackView {
         const b = this.P(s.x, s.y, s.z);
         if (b) {
           c.beginPath(); c.arc(b[0], b[1], 6, 0, 6.3); c.fillStyle = k.color; c.fill();
-          c.lineWidth = 2; c.strokeStyle = "#121211"; c.stroke();
+          c.lineWidth = 2; c.strokeStyle = "#0a0e17"; c.stroke();
         }
       }
     });
@@ -547,7 +547,7 @@ class TrackView {
       if (label) this.text(label, mid[0], mid[1] - 10, color, 11, "center");
     };
     d.flights.ghost.forEach((f) => arc(f, "#4aa3ff", ""));
-    d.flights.you.forEach((f) => arc(f, "#f0ede6", `${f.duration_s.toFixed(1)} s air`));
+    d.flights.you.forEach((f) => arc(f, "#eef2fb", `${f.duration_s.toFixed(1)} s air`));
   }
 
   // replay: both cars at the same moment of the race
@@ -570,11 +570,11 @@ class TrackView {
       if (!p) return;
       const s = this.P(p[1], p[2], p[3]);
       if (!s) return;
-      c.beginPath(); c.arc(s[0], s[1], r + 3, 0, 6.3); c.fillStyle = "rgba(18,18,17,0.85)"; c.fill();
+      c.beginPath(); c.arc(s[0], s[1], r + 3, 0, 6.3); c.fillStyle = "rgba(10,14,23,0.85)"; c.fill();
       c.beginPath(); c.arc(s[0], s[1], r, 0, 6.3);
       if (ring) { c.lineWidth = 3; c.strokeStyle = color; c.stroke(); } else { c.fillStyle = color; c.fill(); }
     };
-    for (const [arr, color] of [[d.subjectPath, "#f0ede6"], [d.refPath, "#4aa3ff"]]) {
+    for (const [arr, color] of [[d.subjectPath, "#eef2fb"], [d.refPath, "#4aa3ff"]]) {
       c.strokeStyle = color;
       c.globalAlpha = 0.55;
       c.lineWidth = 3;
@@ -591,7 +591,7 @@ class TrackView {
       c.globalAlpha = 1;
     }
     dot(ghost, "#4aa3ff", 8, true);
-    dot(you, "#f0ede6", 7, false);
+    dot(you, "#eef2fb", 7, false);
     if (you) {
       let lo = 0, hi = d.pts.length - 1;
       while (lo < hi) { const m = (lo + hi) >> 1; if (d.pts[m].t_ms < t) lo = m + 1; else hi = m; }
@@ -621,14 +621,14 @@ class TrackView {
     const c = this.ctx, scale = this.view2.scale, target = 120 / scale;
     const nice = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((v) => v >= target) || 1000;
     const px = nice * scale, x = 20, y = this.H - 24;
-    c.strokeStyle = "#f0ede6";
+    c.strokeStyle = "#eef2fb";
     c.lineWidth = 2;
     c.beginPath();
     c.moveTo(x, y); c.lineTo(x + px, y);
     c.moveTo(x, y - 5); c.lineTo(x, y + 5);
     c.moveTo(x + px, y - 5); c.lineTo(x + px, y + 5);
     c.stroke();
-    this.text(`${nice} m`, x + px / 2, y - 12, "#f0ede6", 12, "center");
+    this.text(`${nice} m`, x + px / 2, y - 12, "#eef2fb", 12, "center");
   }
 
   // ---------------------------------------------------------------- the panel
@@ -715,7 +715,7 @@ class TrackView {
       ${tile("Climb / drop", `+${Math.round(d.up)} / −${Math.round(d.down)} m`)}
       ${tile("Jumps", `${d.flights.you.length} (ghost ${d.flights.ghost.length})`)}
       ${tile("Top speed", `${Math.round(top)} km/h`)}
-      ${d.surf ? tile("Surface", this.surfaceSummary()) : ""}
+      ${d.surf ? tile("Ground", this.surfaceSummary()) : ""}
     </dl>`;
   }
 
@@ -775,7 +775,7 @@ class TrackView {
     for (const r of cps) {
       const s = this.P(r.x, r.y, r.z);
       if (!s) continue;
-      const col = r.delta_ms > 20 ? "#ff6252" : r.delta_ms < -20 ? "#3dd68c" : "#f0ede6";
+      const col = r.delta_ms > 20 ? "#ff5a73" : r.delta_ms < -20 ? "#2fe3a2" : "#eef2fb";
       c.strokeStyle = col; c.lineWidth = 2.5;
       c.beginPath(); c.moveTo(s[0], s[1]); c.lineTo(s[0], s[1] - 26); c.stroke();
       c.fillStyle = col;
@@ -807,7 +807,7 @@ class TrackView {
     for (const m of d.moves || []) {
       const p = pts[this.pointAtDistance(m.dist_m)], s = this.P(m.x, p.y, m.z);
       if (!s) continue;
-      c.beginPath(); c.arc(s[0], s[1], 11, 0, 6.3); c.fillStyle = "rgba(18,18,17,0.9)"; c.fill();
+      c.beginPath(); c.arc(s[0], s[1], 11, 0, 6.3); c.fillStyle = "rgba(10,14,23,0.9)"; c.fill();
       c.lineWidth = 2.5; c.strokeStyle = colour[m.kind] || "#ffb020"; c.stroke();
       c.fillStyle = colour[m.kind] || "#ffb020";
       c.font = "700 13px system-ui, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
@@ -901,7 +901,7 @@ class TrackView {
     const X = (dist) => 4 + (dist / total) * (w - 8);
     const Y = (y) => h - 14 - ((y - lo) / Math.max(1, hi - lo)) * (h - 26);
     d.corners.forEach((cor) => {
-      c.fillStyle = cor.time_change_ms > 0 ? "rgba(255,98,82,0.15)" : cor.time_change_ms < 0 ? "rgba(61,214,140,0.13)" : "rgba(138,134,125,0.1)";
+      c.fillStyle = cor.time_change_ms > 0 ? "rgba(255,90,115,0.15)" : cor.time_change_ms < 0 ? "rgba(47,227,162,0.13)" : "rgba(125,138,166,0.1)";
       c.fillRect(X(cor.distance_start), 4, Math.max(1, X(cor.distance_end) - X(cor.distance_start)), h - 18);
     });
     c.strokeStyle = "#4aa3ff";
@@ -916,16 +916,16 @@ class TrackView {
     pts.forEach((p) => c.lineTo(X(p.distance_m), Y(p.y)));
     c.lineTo(X(total), h - 14);
     c.closePath();
-    c.fillStyle = "rgba(240,237,230,0.1)";
+    c.fillStyle = "rgba(238,242,251,0.1)";
     c.fill();
-    c.strokeStyle = "#f0ede6";
+    c.strokeStyle = "#eef2fb";
     c.lineWidth = 2;
     c.beginPath();
     pts.forEach((p, i) => (i ? c.lineTo(X(p.distance_m), Y(p.y)) : c.moveTo(X(p.distance_m), Y(p.y))));
     c.stroke();
-    c.fillStyle = "#f0b429";
+    c.fillStyle = "#ffc247";
     d.flights.you.forEach((f) => c.fillRect(X(this.distAt(f.t_ms)) - 1, 4, 3, 7));
-    c.fillStyle = "#8a867d";
+    c.fillStyle = "#7d8aa6";
     c.font = '11px "Barlow", sans-serif';
     c.textBaseline = "alphabetic";
     c.textAlign = "left";
@@ -939,15 +939,15 @@ class TrackView {
       c.beginPath(); c.moveTo(x, 4); c.lineTo(x, h - 14); c.stroke();
     };
     if (this.hoverDist !== null) {
-      mark(this.hoverDist, "rgba(240,237,230,0.7)");
+      mark(this.hoverDist, "rgba(238,242,251,0.7)");
       const p = pts[this.pointAtDistance(this.hoverDist)], right = this.hoverDist > total / 2;
-      c.fillStyle = "#f0ede6";
+      c.fillStyle = "#eef2fb";
       c.textAlign = right ? "right" : "left";
       c.fillText(`${Math.round(p.distance_m)} m · height ${Math.round(p.y)} m`, X(this.hoverDist) + (right ? -6 : 6), 24);
     }
     if (this.play.t > 0) {
       const idx = pts.findIndex((p) => p.t_ms >= this.play.t);
-      mark(pts[idx < 0 ? pts.length - 1 : idx].distance_m, "#d4f03c");
+      mark(pts[idx < 0 ? pts.length - 1 : idx].distance_m, "#8f7bff");
     }
   }
 

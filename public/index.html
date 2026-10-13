@@ -187,6 +187,15 @@
           <div id="overview-body">
           <div class="stats" id="stats-row"></div>
 
+          <div id="ribbon-area" class="ribbon-card" hidden>
+            <div class="block-head">
+              <h2 class="section-title">The lap at a glance</h2>
+              <span class="hint">The ground you drive on, the corners, the checkpoints and every trick, along the lap. Hover to read, select to see it on the graphs.</span>
+            </div>
+            <div class="ribbon-wrap"><canvas id="ribbon"></canvas><div class="ribbon-tip" id="ribbon-tip" hidden></div></div>
+          </div>
+
+          <div class="ov-grid">
           <div id="focus-area" hidden>
             <div class="block-head">
               <h2 class="section-title">Where the time is</h2>
@@ -196,6 +205,16 @@
             <div id="strength-cards" class="focus-grid strengths"></div>
           </div>
 
+            <div id="ground-area" hidden>
+              <div class="block-head">
+                <h2 class="section-title">The ground</h2>
+                <span class="hint">What you drive on, and where you gain or lose on it.</span>
+              </div>
+              <div id="ground-body"></div>
+            </div>
+          </div>
+
+          <div class="ov-grid">
           <div id="cp-area" hidden>
             <div class="block-head">
               <h2 class="section-title">Checkpoints</h2>
@@ -210,6 +229,7 @@
               <span class="hint">What the ghosts do that you don't, and how your landings went. Select one to see it on the graphs.</span>
             </div>
             <div id="moves-cards" class="focus-grid"></div>
+          </div>
           </div>
 
           <div id="lap-area">
@@ -229,6 +249,7 @@
                   <div class="seg" id="map-mode" role="group" aria-label="Colour the track by">
                     <button type="button" class="on" data-mode="time">Time</button>
                     <button type="button" data-mode="speed">Speed</button>
+                    <button type="button" data-mode="ground">Ground</button>
                   </div>
                 </div>
                 <canvas id="trackmap"></canvas>
@@ -250,7 +271,7 @@
         <div class="view" data-view="sections" hidden>
           <div class="block-head">
             <h2 class="section-title">Section by section</h2>
-            <span class="hint">The lap cut into equal stretches, each with speed and steering for you and the ghost.</span>
+            <span class="hint">The lap cut between the map's checkpoints (or into equal stretches when there are none), each with speed and steering for you and the ghost.</span>
           </div>
           <div class="section-nav" id="section-nav"></div>
           <div class="legend-row" id="sections-legend"></div>
@@ -367,6 +388,7 @@
 <script src="app.js"></script>
 <script src="figures.js"></script>
 <script src="share.js"></script>
+<script src="lap.js"></script>
 <script src="track.js"></script>
 </body>
 </html>

@@ -33,6 +33,11 @@ coach that works from those measurements.
   line against the ghost's, the brake / turn-in / apex / exit points, distance ticks, the surface
   and the input timeline. Each figure has a Save PNG button, and the coach's note shows up in the
   Track tab next to that corner.
+- **A new look, and the ground up front:** a deep-navy theme with one violet accent. The overview now opens with "The lap at
+  a glance", a strip along the lap showing the ground you drive on (tech, ice, dirt, grass...), the corners (coloured by
+  time lost or gained), the checkpoints and every trick. Below it, a "Ground" card shows what share of the lap is on each
+  surface, your speed against the ghost's and the time you gain or lose on it, with a one-line tip per surface. The ground
+  also runs as a thin strip along every chart, as a "Ground" colour mode on the maps, and as a chip on each corner.
 - **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
   the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
   between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording
@@ -194,6 +199,7 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
 - `backend/mapblocks.py`, `surface.py` — read the map's blocks (own Gbx map parser, no keys) and
   turn them into a surface label for every point of the lap. It is an estimate: the labels come from
   the nearest blocks, so custom or very unusual blocks may show as "unknown".
+- `public/lap.js` — the lap-at-a-glance strip, the ground card and the ground strip on the charts.
 - `backend/checkpoints.py` — splits and checkpoint-based sections from the times stored in the replay.
 - `backend/driving.py` — landings, wall-rides, input smoothness and what the top ghosts share. `shares.py` — the 30-day store
   behind challenge links. `public/share.js` — the share-card images.
