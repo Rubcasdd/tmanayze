@@ -196,7 +196,10 @@ def landing_findings(subject: dict, reference: dict) -> list[dict]:
             continue
         mate = min(reference["landings"], key=lambda g: abs(g["dist_m"] - land["dist_m"]), default=None)
         mate = mate if mate and abs(mate["dist_m"] - land["dist_m"]) < 60 else None
-        worse = mate is None or (land["speed_lost"] - mate["speed_lost"] >= 4) or (not land["clean"] and mate["clean"])
+        if land["clean"]:
+            worse = mate is not None and land["speed_lost"] - mate["speed_lost"] >= 8   # a flat landing only matters if it cost more than the ghost's
+        else:
+            worse = mate is None or mate["clean"] or land["speed_lost"] - mate["speed_lost"] >= 4
         if not worse:
             continue
         ghost = f"; the ghost {landing_word(mate)}" if mate else ""

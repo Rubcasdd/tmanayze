@@ -171,8 +171,12 @@ async function loadHealth() {
 function route() {
   const hash = location.hash || "#/";
   const m = hash.match(/^#\/map\/([A-Za-z0-9_-]{20,40})(\/track)?/);
+  const ch = hash.match(/^#\/c\/([A-Za-z0-9_-]{6,16})$/);
   closeExpand();
-  if (m) {
+  if (ch) {
+    showView("home");
+    openChallenge(ch[1]);
+  } else if (m) {
     showView(m[2] ? "track" : "map");
     openMap(m[1]);
   } else {
@@ -309,6 +313,121 @@ async function renderHome() {
   $("#studying-block").hidden = !studying.length;
   $("#studying-grid").innerHTML = studying.sort(byName).map(mapCard).join("");
   hydrateCards();
+  renderTotd();
+}
+
+// ============================================================ Track of the Day
+
+let totdCache = null;
+
+async function renderTotd() {
+  const card = $("#totd-card");
+  try {
+    if (!totdCache || Date.now() - totdCache.at > 600000) totdCache = { at: Date.now(), data: await api("/api/tmio/totd/today") };
+  } catch {
+    card.hidden = true;
+    return;
+  }
+  const { map: m, wr, day } = totdCache.data;
+  const mine = (state.maps || []).find((x) => x.map_uid === m.map_uid);
+  const best = mine && mine.best_own_ms != null ? mine.best_own_ms : null;
+  card.hidden = false;
+  $("#totd-thumb").src = m.thumbnail_url || "";
+  $("#totd-name").textContent = tmName(m.name);
+  $("#totd-date").textContent = day || "today";
+  $("#totd-by").textContent = (m.authors || []).length ? `by ${(m.authors || []).map(tmName).join(", ")}` : "";
+  const wrText = wr ? `World record <b>${fmtTime(wr.time_ms)}</b> by ${esc(tmName(wr.player_name) || "?")}` : "";
+  const mineText = best != null
+    ? ` · Your best <b>${fmtTime(best)}</b>${wr ? `, ${fmtGap(best - wr.time_ms)} (${(((best - wr.time_ms) / wr.time_ms) * 100).toFixed(1)}%) from the record` : ""}`
+    : " · You haven't added a run of this map yet.";
+  $("#totd-status").innerHTML = wrText + mineText;
+  $("#totd-go").textContent = best != null && wr ? "Compare with the world record" : "Open the map";
+  $("#totd-go").onclick = () => {
+    if (best != null && wr && wr.ghost_url) state.pendingTotd = { uid: m.map_uid, wr };
+    location.hash = `#/map/${m.map_uid}`;
+  };
+}
+
+// download the world-record ghost once and select it as the ghost to race
+async function addWorldRecord(wr, uid) {
+  const have = state.runs.find((r) => r.source === "tmio" && r.world_position === 1);
+  if (have && have.race_time_ms === wr.time_ms) {
+    state.pendingSelect = { against: [have.id] };
+    return;
+  }
+  const fd = new FormData();
+  fd.append("map_uid", uid);
+  fd.append("ghost_ref", wr.ghost_url);
+  fd.append("kind", "reference");
+  fd.append("player_nickname", wr.player_name || "");
+  fd.append("race_time_ms", String(wr.time_ms));
+  fd.append("world_position", "1");
+  const run = await api("/api/tmio/import-ghost", { method: "POST", body: fd });
+  await Store.putRuns([run]);
+  state.pendingSelect = { against: [run.id] };
+}
+
+// ============================================================ challenge links
+
+const sharePayload = (r) => ({ id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname, race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, samples: r.samples || [] });
+
+async function createChallenge() {
+  const ctx = shareContext();
+  if (!ctx) return;
+  const btn = $("#share-link");
+  try {
+    const status = await api("/api/share/status");
+    if (!status.available) { alert("Share links need storage that this site doesn't have yet (the owner can connect Upstash / Vercel KV)."); return; }
+    if (!confirm("Create a link to this comparison?\n\nBoth runs' driving data (positions, inputs, player names) are stored on the site for 30 days, and anyone with the link can open them.")) return;
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+    const [subject, reference] = await Store.getRuns([state.subjectId, state.primaryRefId]);
+    const res = await postJson("/api/share", { subject: sharePayload(subject), reference: sharePayload(reference) });
+    showChallengeLink(`${location.origin}${location.pathname}#/c/${res.id}`, res.days);
+  } catch (err) {
+    alert(`Couldn't create the link: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Challenge link";
+  }
+}
+
+function showChallengeLink(url, days) {
+  const el = document.createElement("div");
+  el.className = "fig-modal";
+  el.innerHTML = `<div class="fig-modal-box share-box"><h3>Your challenge link</h3>
+    <p class="hint">Anyone who opens it sees this comparison (your run against the ghost). It stays up for ${days} days.</p>
+    <div class="challenge-link"><input type="text" readonly value="${esc(url)}" aria-label="Link" /><button type="button" class="btn primary copy">Copy</button></div>
+    <div class="share-actions"><span class="hint note"></span><button type="button" class="btn tiny close">Close</button></div></div>`;
+  const input = el.querySelector("input");
+  el.addEventListener("click", (e) => { if (e.target === el) el.remove(); });
+  el.querySelector(".close").addEventListener("click", () => el.remove());
+  el.querySelector(".copy").addEventListener("click", async () => {
+    input.select();
+    try { await navigator.clipboard.writeText(url); el.querySelector(".note").textContent = "Copied."; } catch { el.querySelector(".note").textContent = "Press Ctrl+C to copy."; }
+  });
+  document.body.appendChild(el);
+  input.select();
+}
+
+// open a shared comparison: both runs are saved in this browser, then shown like any other comparison
+async function openChallenge(id) {
+  const grid = $("#finished-grid");
+  if (grid) grid.innerHTML = `<div class="empty-state">Opening the shared comparison…</div>`;
+  try {
+    const d = await api(`/api/share/${encodeURIComponent(id)}`);
+    const mk = (r, kind, suffix) => ({
+      ...r, id: `ch-${id}-${suffix}`, kind, source: "shared", telemetry_available: !!(r.samples && r.samples.length), uploaded_at: new Date().toISOString(),
+    });
+    const you = mk(d.subject, "run", "you"), ghost = mk(d.reference, "reference", "ghost");
+    await Store.putRuns([you, ghost]);
+    state.pendingSelect = { subject: you.id, against: [ghost.id] };
+    state.challengeNote = { from: tmName(you.player_nickname) || "someone", note: d.note || "" };
+    location.hash = `#/map/${you.map_uid}`;
+  } catch (err) {
+    alert(err.message);
+    location.hash = "#/";
+  }
 }
 
 // ---- importing many replays at once
@@ -559,6 +678,7 @@ async function openMap(mapUid) {
 
   $("#open-track").href = `#/map/${mapUid}/track`;
   $("#share-lap").onclick = () => { const c = shareContext(); if (c) Share.open("lap", c); };
+  $("#share-link").onclick = createChallenge;
   $("#map-title").textContent = detail.name;
   $("#crumb").textContent = detail.name;
   document.title = `${detail.name} · Trackmania Analyzer`;
@@ -717,6 +837,11 @@ async function handleUpload() {
 
 async function loadRuns() {
   if (!state.map) return;
+  const want = state.pendingTotd;
+  if (want && want.uid === state.map.map_uid) {
+    state.pendingTotd = null;
+    try { await addWorldRecord(want.wr, want.uid); } catch (err) { setStatus($("#upload-status"), `Couldn't add the world record: ${err.message}`, "error"); }
+  }
   const list = await Store.listRunSummaries(state.map.map_uid);
   list.sort((a, b) => (a.race_time_ms ?? Infinity) - (b.race_time_ms ?? Infinity));
   const timed = list.filter((r) => r.race_time_ms != null);
@@ -728,6 +853,15 @@ async function loadRuns() {
   });
   state.runs = list;
   autoSelect();
+  const banner = $("#challenge-banner");
+  if (state.challengeNote) {
+    banner.hidden = false;
+    banner.textContent = `Shared by ${state.challengeNote.from}${state.challengeNote.note ? `: “${state.challengeNote.note}”` : ""}. Both runs are now saved in this browser; remove them from the list on the left any time.`;
+    state.challengeShown = state.map.map_uid;
+    state.challengeNote = null;
+  } else if (state.challengeShown !== state.map.map_uid) {
+    banner.hidden = true;
+  }
   renderRunsList();
   renderMapKpis();
   await maybeLoadComparison();
@@ -737,6 +871,13 @@ async function loadRuns() {
 // telemetry as the subject, the fastest ghost with telemetry as the reference.
 function autoSelect() {
   const ids = new Set(state.runs.map((r) => r.id));
+  if (state.pendingSelect) { // a shared comparison or the Track of the Day asked for particular runs
+    const want = state.pendingSelect;
+    state.pendingSelect = null;
+    if (want.subject && ids.has(want.subject)) state.subjectId = want.subject;
+    const against = (want.against || []).filter((id) => ids.has(id) && id !== state.subjectId);
+    if (against.length) state.againstIds = new Set(against);
+  }
   if (state.subjectId && !ids.has(state.subjectId)) state.subjectId = null;
   state.againstIds = new Set([...state.againstIds].filter((id) => ids.has(id) && id !== state.subjectId));
   const usable = state.runs.filter((r) => r.telemetry_available);

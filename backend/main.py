@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import coach_knowledge, driving as driving_mod, signals as signals_mod, techniques
+from . import coach_knowledge, driving as driving_mod, shares, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -613,11 +613,68 @@ def _totd_maps(query: str | None, count: int, months: int = 3) -> list[dict]:
                 "thumbnail_url": m.get("thumbnailUrl") or "",
                 "source": "trackmania.io",
                 "fallback": True,
-                "totd": f"{m.get('timestamp', '')[:10]}",
+                "totd": day.get("date") or "",
             })
             if len(out) >= count:
                 return out
     return out
+
+
+_today_cache: dict = {"at": 0.0, "value": None}
+
+
+@app.get("/api/tmio/totd/today")
+def tmio_totd_today():
+    """Today's Track of the Day and its world record (cached for ten minutes)."""
+    if _today_cache["value"] and time.time() - _today_cache["at"] < 600:
+        return _today_cache["value"]
+    maps = _totd_maps(None, 1, months=2)
+    if not maps:
+        raise HTTPException(502, "Today's Track of the Day isn't available from trackmania.io right now.")
+    m = maps[0]
+    wr = None
+    try:
+        entries = insights_mod.leaderboard_page(m["map_uid"], 0, 1)["entries"]
+        if entries:
+            wr = entries[0]
+    except tmio_client.TmioError:
+        pass
+    value = {"day": m.get("totd"), "map": m, "wr": wr}
+    _today_cache.update(at=time.time(), value=value)
+    return value
+
+
+class SharePayload(BaseModel):
+    subject: RunPayload
+    reference: RunPayload
+    note: str | None = Field(default=None, max_length=140)
+
+
+@app.get("/api/share/status")
+def share_status():
+    return {"available": shares.available()}
+
+
+@app.post("/api/share")
+def create_share(body: SharePayload, request: Request):
+    """Keep a comparison for 30 days under a short link. Only runs the visitor chose to share are stored."""
+    hit = ratelimit.get_limiter().check("share", _visitor(request), 12, 3600)
+    if not hit.allowed:
+        raise HTTPException(429, "You've made a lot of share links this hour. Try again later.", headers={"Retry-After": str(hit.retry_after)})
+    try:
+        share_id = shares.create(body.subject.as_run(), body.reference.as_run(), body.note)
+    except shares.ShareError as e:
+        hit.refund()
+        raise HTTPException(e.status, str(e)) from e
+    return {"id": share_id, "days": shares.TTL_S // 86400}
+
+
+@app.get("/api/share/{share_id}")
+def get_share(share_id: str):
+    try:
+        return shares.fetch(share_id)
+    except shares.ShareError as e:
+        raise HTTPException(e.status, str(e)) from e
 
 
 @app.get("/api/mx/search")

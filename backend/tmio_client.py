@@ -114,6 +114,10 @@ def get_totd_month(month_offset: int = 0) -> list[dict]:
         return hit[1]
     data = _get(f"/totd/{offset}")
     days = data.get("days", []) if isinstance(data, dict) else []
+    year, month = (data.get("year"), data.get("month")) if isinstance(data, dict) else (None, None)
+    for d in days:
+        if year and month and d.get("monthday"):
+            d["date"] = f"{int(year):04d}-{int(month):02d}-{int(d['monthday']):02d}"  # the map's own timestamp is its upload date
     days = sorted(days, key=lambda d: d.get("monthday", 0), reverse=True)
     _totd_cache[offset] = (time.time(), days)
     return days
