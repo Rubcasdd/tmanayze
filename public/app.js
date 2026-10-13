@@ -1056,6 +1056,7 @@ function renderComparison() {
   renderMoves(primary);
   renderRibbon(primary);
   renderGround(primary);
+  renderGallery(primary);
   const chartable = ids.filter((id) => data[id].stats.telemetry);
   $("#chart-empty-note").hidden = chartable.length > 0;
   $("#lap-area").hidden = chartable.length === 0;
