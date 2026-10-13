@@ -171,8 +171,12 @@ async function loadHealth() {
 function route() {
   const hash = location.hash || "#/";
   const m = hash.match(/^#\/map\/([A-Za-z0-9_-]{20,40})(\/track)?/);
+  const ch = hash.match(/^#\/c\/([A-Za-z0-9_-]{6,16})$/);
   closeExpand();
-  if (m) {
+  if (ch) {
+    showView("home");
+    openChallenge(ch[1]);
+  } else if (m) {
     showView(m[2] ? "track" : "map");
     openMap(m[1]);
   } else {
@@ -309,6 +313,121 @@ async function renderHome() {
   $("#studying-block").hidden = !studying.length;
   $("#studying-grid").innerHTML = studying.sort(byName).map(mapCard).join("");
   hydrateCards();
+  renderTotd();
+}
+
+// ============================================================ Track of the Day
+
+let totdCache = null;
+
+async function renderTotd() {
+  const card = $("#totd-card");
+  try {
+    if (!totdCache || Date.now() - totdCache.at > 600000) totdCache = { at: Date.now(), data: await api("/api/tmio/totd/today") };
+  } catch {
+    card.hidden = true;
+    return;
+  }
+  const { map: m, wr, day } = totdCache.data;
+  const mine = (state.maps || []).find((x) => x.map_uid === m.map_uid);
+  const best = mine && mine.best_own_ms != null ? mine.best_own_ms : null;
+  card.hidden = false;
+  $("#totd-thumb").src = m.thumbnail_url || "";
+  $("#totd-name").textContent = tmName(m.name);
+  $("#totd-date").textContent = day || "today";
+  $("#totd-by").textContent = (m.authors || []).length ? `by ${(m.authors || []).map(tmName).join(", ")}` : "";
+  const wrText = wr ? `World record <b>${fmtTime(wr.time_ms)}</b> by ${esc(tmName(wr.player_name) || "?")}` : "";
+  const mineText = best != null
+    ? ` · Your best <b>${fmtTime(best)}</b>${wr ? `, ${fmtGap(best - wr.time_ms)} (${(((best - wr.time_ms) / wr.time_ms) * 100).toFixed(1)}%) from the record` : ""}`
+    : " · You haven't added a run of this map yet.";
+  $("#totd-status").innerHTML = wrText + mineText;
+  $("#totd-go").textContent = best != null && wr ? "Compare with the world record" : "Open the map";
+  $("#totd-go").onclick = () => {
+    if (best != null && wr && wr.ghost_url) state.pendingTotd = { uid: m.map_uid, wr };
+    location.hash = `#/map/${m.map_uid}`;
+  };
+}
+
+// download the world-record ghost once and select it as the ghost to race
+async function addWorldRecord(wr, uid) {
+  const have = state.runs.find((r) => r.source === "tmio" && r.world_position === 1);
+  if (have && have.race_time_ms === wr.time_ms) {
+    state.pendingSelect = { against: [have.id] };
+    return;
+  }
+  const fd = new FormData();
+  fd.append("map_uid", uid);
+  fd.append("ghost_ref", wr.ghost_url);
+  fd.append("kind", "reference");
+  fd.append("player_nickname", wr.player_name || "");
+  fd.append("race_time_ms", String(wr.time_ms));
+  fd.append("world_position", "1");
+  const run = await api("/api/tmio/import-ghost", { method: "POST", body: fd });
+  await Store.putRuns([run]);
+  state.pendingSelect = { against: [run.id] };
+}
+
+// ============================================================ challenge links
+
+const sharePayload = (r) => ({ id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname, race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, checkpoints: r.checkpoints || null, samples: r.samples || [] });
+
+async function createChallenge() {
+  const ctx = shareContext();
+  if (!ctx) return;
+  const btn = $("#share-link");
+  try {
+    const status = await api("/api/share/status");
+    if (!status.available) { alert("Share links need storage that this site doesn't have yet (the owner can connect Upstash / Vercel KV)."); return; }
+    if (!confirm("Create a link to this comparison?\n\nBoth runs' driving data (positions, inputs, player names) are stored on the site for 30 days, and anyone with the link can open them.")) return;
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+    const [subject, reference] = await Store.getRuns([state.subjectId, state.primaryRefId]);
+    const res = await postJson("/api/share", { subject: sharePayload(subject), reference: sharePayload(reference) });
+    showChallengeLink(`${location.origin}${location.pathname}#/c/${res.id}`, res.days);
+  } catch (err) {
+    alert(`Couldn't create the link: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Challenge link";
+  }
+}
+
+function showChallengeLink(url, days) {
+  const el = document.createElement("div");
+  el.className = "fig-modal";
+  el.innerHTML = `<div class="fig-modal-box share-box"><h3>Your challenge link</h3>
+    <p class="hint">Anyone who opens it sees this comparison (your run against the ghost). It stays up for ${days} days.</p>
+    <div class="challenge-link"><input type="text" readonly value="${esc(url)}" aria-label="Link" /><button type="button" class="btn primary copy">Copy</button></div>
+    <div class="share-actions"><span class="hint note"></span><button type="button" class="btn tiny close">Close</button></div></div>`;
+  const input = el.querySelector("input");
+  el.addEventListener("click", (e) => { if (e.target === el) el.remove(); });
+  el.querySelector(".close").addEventListener("click", () => el.remove());
+  el.querySelector(".copy").addEventListener("click", async () => {
+    input.select();
+    try { await navigator.clipboard.writeText(url); el.querySelector(".note").textContent = "Copied."; } catch { el.querySelector(".note").textContent = "Press Ctrl+C to copy."; }
+  });
+  document.body.appendChild(el);
+  input.select();
+}
+
+// open a shared comparison: both runs are saved in this browser, then shown like any other comparison
+async function openChallenge(id) {
+  const grid = $("#finished-grid");
+  if (grid) grid.innerHTML = `<div class="empty-state">Opening the shared comparison…</div>`;
+  try {
+    const d = await api(`/api/share/${encodeURIComponent(id)}`);
+    const mk = (r, kind, suffix) => ({
+      ...r, id: `ch-${id}-${suffix}`, kind, source: "shared", telemetry_available: !!(r.samples && r.samples.length), uploaded_at: new Date().toISOString(),
+    });
+    const you = mk(d.subject, "run", "you"), ghost = mk(d.reference, "reference", "ghost");
+    await Store.putRuns([you, ghost]);
+    state.pendingSelect = { subject: you.id, against: [ghost.id] };
+    state.challengeNote = { from: tmName(you.player_nickname) || "someone", note: d.note || "" };
+    location.hash = `#/map/${you.map_uid}`;
+  } catch (err) {
+    alert(err.message);
+    location.hash = "#/";
+  }
 }
 
 // ---- importing many replays at once
@@ -558,6 +677,8 @@ async function openMap(mapUid) {
   infoCache.set(mapUid, { name: detail.name, thumbnail_url: detail.thumbnail_url, authors: detail.authors, tags: detail.tags, difficulty: detail.difficulty });
 
   $("#open-track").href = `#/map/${mapUid}/track`;
+  $("#share-lap").onclick = () => { const c = shareContext(); if (c) Share.open("lap", c); };
+  $("#share-link").onclick = createChallenge;
   $("#map-title").textContent = detail.name;
   $("#crumb").textContent = detail.name;
   document.title = `${detail.name} · Trackmania Analyzer`;
@@ -716,6 +837,11 @@ async function handleUpload() {
 
 async function loadRuns() {
   if (!state.map) return;
+  const want = state.pendingTotd;
+  if (want && want.uid === state.map.map_uid) {
+    state.pendingTotd = null;
+    try { await addWorldRecord(want.wr, want.uid); } catch (err) { setStatus($("#upload-status"), `Couldn't add the world record: ${err.message}`, "error"); }
+  }
   const list = await Store.listRunSummaries(state.map.map_uid);
   list.sort((a, b) => (a.race_time_ms ?? Infinity) - (b.race_time_ms ?? Infinity));
   const timed = list.filter((r) => r.race_time_ms != null);
@@ -727,6 +853,15 @@ async function loadRuns() {
   });
   state.runs = list;
   autoSelect();
+  const banner = $("#challenge-banner");
+  if (state.challengeNote) {
+    banner.hidden = false;
+    banner.textContent = `Shared by ${state.challengeNote.from}${state.challengeNote.note ? `: “${state.challengeNote.note}”` : ""}. Both runs are now saved in this browser; remove them from the list on the left any time.`;
+    state.challengeShown = state.map.map_uid;
+    state.challengeNote = null;
+  } else if (state.challengeShown !== state.map.map_uid) {
+    banner.hidden = true;
+  }
   renderRunsList();
   renderMapKpis();
   await maybeLoadComparison();
@@ -736,6 +871,13 @@ async function loadRuns() {
 // telemetry as the subject, the fastest ghost with telemetry as the reference.
 function autoSelect() {
   const ids = new Set(state.runs.map((r) => r.id));
+  if (state.pendingSelect) { // a shared comparison or the Track of the Day asked for particular runs
+    const want = state.pendingSelect;
+    state.pendingSelect = null;
+    if (want.subject && ids.has(want.subject)) state.subjectId = want.subject;
+    const against = (want.against || []).filter((id) => ids.has(id) && id !== state.subjectId);
+    if (against.length) state.againstIds = new Set(against);
+  }
   if (state.subjectId && !ids.has(state.subjectId)) state.subjectId = null;
   state.againstIds = new Set([...state.againstIds].filter((id) => ids.has(id) && id !== state.subjectId));
   const usable = state.runs.filter((r) => r.telemetry_available);
@@ -859,7 +1001,7 @@ async function maybeLoadComparison() {
     const byId = Object.fromEntries(runs.map((r) => [r.id, r]));
     const strip = (r) => ({
       id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname,
-      race_time_ms: r.race_time_ms, samples: r.samples || [],
+      race_time_ms: r.race_time_ms, checkpoints: r.checkpoints || null, samples: r.samples || [],
     });
     const subject = byId[state.subjectId];
     const refs = ids.map((id) => byId[id]).filter(Boolean);
@@ -910,6 +1052,8 @@ function renderComparison() {
 
   renderStats(data, ids);
   renderFocus(primary);
+  renderCheckpoints(primary);
+  renderMoves(primary);
   const chartable = ids.filter((id) => data[id].stats.telemetry);
   $("#chart-empty-note").hidden = chartable.length > 0;
   $("#lap-area").hidden = chartable.length === 0;
@@ -969,7 +1113,8 @@ function renderStats(data, ids) {
       tile("Top speed", `${r0(s.subject_top_speed)} <small>vs ${r0(s.reference_top_speed)}</small>`, "", "km/h") +
       tile("Steering", `${r2(s.subject_avg_abs_steer)} <small>vs ${r2(s.reference_avg_abs_steer)}</small>`, "", `${shortStyle(s.subject_input_style)} vs ${shortStyle(s.reference_input_style)}`) +
       tile("Steer reversals", `${s.subject_steer_reversals} <small>vs ${s.reference_steer_reversals}</small>`) +
-      tile("Brake taps", `${s.subject_brake_events} <small>vs ${s.reference_brake_events}</small>`);
+      tile("Brake taps", `${s.subject_brake_events} <small>vs ${s.reference_brake_events}</small>`) +
+      calmTile(data[ids[0]], tile);
     return;
   }
 
@@ -979,20 +1124,118 @@ function renderStats(data, ids) {
       const dot = `<span class="legend-line" style="--c:${s.telemetry ? ghostColor(id) : "#5a5851"}"></span> `;
       const label = `${dot}${esc(runLabel(id))}${id === state.primaryRefId ? ' <span class="hint">(coach uses this one)</span>' : ""}`;
       if (!s.telemetry) {
-        return `<tr class="dim"><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td><td colspan="4">time only, no telemetry</td></tr>`;
+        return `<tr class="dim"><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td><td colspan="5">time only, no telemetry</td></tr>`;
       }
       return `<tr><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td>
         <td>${fmtGap(s.corner_time_change_ms)}</td><td>${fmtGap(s.straight_time_change_ms)}</td>
         <td>${r0(s.subject_avg_speed)} vs ${r0(s.reference_avg_speed)}</td>
-        <td>${r2(s.subject_avg_abs_steer)} vs ${r2(s.reference_avg_abs_steer)} · ${s.subject_steer_reversals} vs ${s.reference_steer_reversals}</td></tr>`;
+        <td>${r2(s.subject_avg_abs_steer)} vs ${r2(s.reference_avg_abs_steer)} · ${s.subject_steer_reversals} vs ${s.reference_steer_reversals}</td>
+        <td>${calmPair(data[id])}</td></tr>`;
     })
     .join("");
   $("#stats-row").innerHTML = `<div class="stats-table-wrap" style="grid-column:1/-1"><table class="stats-table">
-    <thead><tr><th>Ghost</th><th>Gap</th><th>In corners</th><th>Between</th><th>Avg speed km/h</th><th>Steering avg · reversals</th></tr></thead>
+    <thead><tr><th>Ghost</th><th>Gap</th><th>In corners</th><th>Between</th><th>Avg speed km/h</th><th>Steering avg · reversals</th><th>Input calm (wheel)</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
 // ============================================================ focus areas & highlight
+
+function calmPair(entry) {
+  const d = entry.driving, s = d && d.subject && d.subject.smoothness, g = d && d.reference && d.reference.smoothness;
+  return s && g ? `${s.wheel} vs ${g.wheel}` : "–";
+}
+
+// How calm the wheel and pedals were, you against the ghost (a comparison, not a skill rating).
+function calmTile(entry, tile) {
+  const d = entry.driving, s = d && d.subject && d.subject.smoothness, g = d && d.reference && d.reference.smoothness;
+  if (!s || !g) return "";
+  return tile("Input calm", `${s.wheel} <small>vs ${g.wheel}</small>`, "", `wheel · pedals ${s.pedals} vs ${g.pedals} (0–100)`);
+}
+
+const MOVE_KINDS = {
+  cut: { icon: "↗", title: "Different line" },
+  jump: { icon: "⤴", title: "Jump line" },
+  airbrake: { icon: "✈", title: "Air-brake spot" },
+};
+
+// What the top ghosts share that you don't, how your landings went, and your wall-rides.
+// The game's checkpoint times, you against the ghost: the gap at each checkpoint and over each stretch.
+function renderCheckpoints(primary) {
+  const area = $("#cp-area"), body = $("#cp-body");
+  const rows = (primary && primary.checkpoints) || [];
+  const mine = state.runs.find((r) => r.id === state.subjectId), theirs = state.runs.find((r) => r.id === state.primaryRefId);
+  const missing = primary && primary.stats.telemetry && !rows.length && ((mine && !mine.checkpoints) || (theirs && !theirs.checkpoints));
+  area.hidden = !rows.length && !missing;
+  if (!rows.length) {
+    if (missing) body.innerHTML = `<div class="hint">One of these runs was saved before checkpoint times were kept, so there's no split table. Add it again (re-import the replay or ghost) to get one.</div>`;
+    return;
+  }
+  const t = (ms) => fmtTime(ms);
+  const worst = Math.max(1, ...rows.map((r) => Math.abs(r.split_delta_ms)));
+  const cell = (ms) => `<td class="${ms > 0 ? "loss" : ms < 0 ? "gain" : ""}">${fmtGap(ms)}</td>`;
+  body.innerHTML = `<table class="cp-table"><thead><tr><th></th><th>You</th><th>Ghost</th><th>Gap</th><th>This stretch</th><th>Stretch gap</th></tr></thead><tbody>${rows.map((r, i) => `
+    <tr data-i="${i}"><td><b>${esc(r.label)}</b></td><td>${t(r.subject_ms)}</td><td>${t(r.reference_ms)}</td>${cell(r.delta_ms)}
+      <td>${t(r.split_subject_ms)} <small>vs ${t(r.split_reference_ms)}</small></td>
+      <td class="${r.split_delta_ms > 0 ? "loss" : r.split_delta_ms < 0 ? "gain" : ""}">${fmtGap(r.split_delta_ms)}<span class="cp-bar ${r.split_delta_ms > 0 ? "loss" : "gain"}" style="width:${Math.round((Math.abs(r.split_delta_ms) / worst) * 80)}px"></span></td></tr>`).join("")}</tbody></table>`;
+  $$("tr[data-i]", body).forEach((tr) =>
+    tr.addEventListener("click", () => {
+      const i = +tr.dataset.i, r = rows[i], from = i === 0 ? 0 : rows[i - 1].dist_m, to = r.dist_m;
+      const same = state.highlight && state.highlight.from === from && state.highlight.to === to;
+      setHighlight(same ? null : { from, to, title: `${i === 0 ? "Start" : rows[i - 1].label} → ${r.label}`, section: null });
+      if (!same) $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+    })
+  );
+}
+
+// the data a share card needs
+function shareContext() {
+  const d = state.compare && state.compare.data[state.primaryRefId];
+  if (!d) return null;
+  const surf = state.surface && state.surface.labels && state.surface.labels.length === d.points.length ? state.surface.labels : null;
+  return { data: d, surf, mapName: (state.map && (state.map.name || state.map.map_name)) || "Trackmania", subject: runLabel(state.subjectId), reference: runLabel(state.primaryRefId) };
+}
+
+function shareCorner(index) {
+  const ctx = shareContext();
+  const c = ctx && ctx.data.corners.find((x) => x.corner_index === index);
+  if (c) Share.open("corner", { ...ctx, corner: c });
+}
+
+function renderMoves(primary) {
+  const area = $("#moves-area");
+  const cards = [];
+  if (primary && primary.stats.telemetry) {
+    for (const m of primary.field_moves || []) {
+      const k = MOVE_KINDS[m.kind] || MOVE_KINDS.cut;
+      cards.push({ icon: k.icon, title: k.title, at: m.dist_m, tag: m.of > 1 ? `${m.agree} of ${m.of} ghosts` : "ghost", text: m.text, cls: "" });
+    }
+    const dr = primary.driving;
+    const mine = dr && dr.subject;
+    if (mine && mine.oriented) {
+      for (const l of mine.landings) {
+        if (l.duration_s < 0.5) continue;
+        const mate = ((dr.reference && dr.reference.landings) || []).reduce((best, g) => (!best || Math.abs(g.dist_m - l.dist_m) < Math.abs(best.dist_m - l.dist_m) ? g : best), null);
+        const ghost = mate && Math.abs(mate.dist_m - l.dist_m) < 60 ? ` The ghost ${mate.text}.` : "";
+        cards.push({ icon: l.flip ? "⟳" : "⤓", title: l.flip ? "Flip" : "Landing", at: l.dist_m, tag: `${l.duration_s.toFixed(1)} s air`, text: `You ${l.text}.${ghost}`, cls: l.clean && l.speed_lost < 12 ? "good" : "bad" });
+      }
+      for (const w of mine.inverted) cards.push({ icon: "◐", title: w.kind === "upside down" ? "Upside down" : "Wall ride", at: w.dist_m, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m`, text: `You ${w.text}.`, cls: "" });
+    }
+  }
+  cards.sort((a, b) => a.at - b.at);
+  area.hidden = cards.length === 0;
+  if (!cards.length) return;
+  $("#moves-cards").innerHTML = cards.map((c, i) => `<button type="button" class="move-card ${c.cls}" data-at="${c.at}" data-title="${esc(c.title)}">
+      <span class="move-icon">${c.icon}</span><span class="move-title">${esc(c.title)} · ${Math.round(c.at)} m</span><span class="move-tag">${esc(c.tag)}</span>
+      <span class="move-text">${esc(c.text)}</span></button>`).join("");
+  $$(".move-card", area).forEach((card) =>
+    card.addEventListener("click", () => {
+      const at = +card.dataset.at, from = Math.max(0, at - 40), to = at + 40;
+      const same = state.highlight && state.highlight.from === from && state.highlight.to === to;
+      setHighlight(same ? null : { from, to, title: card.dataset.title, section: null });
+      if (!same) $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+    })
+  );
+}
 
 function focusCard(item, kind) {
   const secs = Math.abs(item.time_change_ms / 1000).toFixed(2);
@@ -1555,7 +1798,7 @@ function renderSections(data, ids) {
   $("#section-nav").innerHTML = primary.sections
     .map((s) => {
       const cls = s.time_change_ms > 0 ? "loss" : s.time_change_ms < 0 ? "gain" : "";
-      return `<button type="button" class="section-chip" data-go="${s.index}"><span>Section ${s.index}</span><span class="t ${cls}">${fmtGap(s.time_change_ms)}</span></button>`;
+      return `<button type="button" class="section-chip" data-go="${s.index}"><span>${esc(s.label || `Section ${s.index}`)}</span><span class="t ${cls}">${fmtGap(s.time_change_ms)}</span></button>`;
     })
     .join("");
   $$(".section-chip").forEach((b) => b.addEventListener("click", () => gotoSection(b.dataset.go)));
@@ -1568,7 +1811,7 @@ function renderSections(data, ids) {
     card.dataset.index = sec.index;
     card.innerHTML = `
       <div class="section-head">
-        <span class="section-title-sm">Section ${sec.index}</span>
+        <span class="section-title-sm">${esc(sec.label || `Section ${sec.index}`)}</span>
         <span class="section-range">${Math.round(sec.distance_start)}–${Math.round(sec.distance_end)} m${sec.corner_indices.length ? ` · corners ${sec.corner_indices.join(", ")}` : " · no corners"}</span>
         <span class="badge ${badgeClass}">${gain ? "gain " : sec.time_change_ms === 0 ? "even " : "lose "}${Math.abs(sec.time_change_ms / 1000).toFixed(2)}s</span>
       </div>
@@ -1609,7 +1852,7 @@ function renderSections(data, ids) {
     state.charts.push(mkSpeed(speedCanvas, {}), mkSteer(steerCanvas, {}));
     $$("[data-expand]", card).forEach((btn) =>
       btn.addEventListener("click", () =>
-        openExpand(`Section ${sec.index}: ${btn.dataset.expand === "speed" ? "speed" : "steering"}`, btn.dataset.expand === "speed" ? mkSpeed : mkSteer)
+        openExpand(`${sec.label || `Section ${sec.index}`}: ${btn.dataset.expand === "speed" ? "speed" : "steering"}`, btn.dataset.expand === "speed" ? mkSpeed : mkSteer)
       )
     );
   });
@@ -1967,6 +2210,7 @@ function hydrateFigures(root) {
     box.innerHTML = `<h4>More corners where you lose time</h4>${more.map((c) => Figures.cornerCard(c, d, surf)).join("")}`;
     root.appendChild(box);
   }
+  $$(".fig-share", root).forEach((b) => b.addEventListener("click", () => shareCorner(+b.closest(".fig").dataset.corner)));
   $$(".fig-save", root).forEach((b) => b.addEventListener("click", () => Figures.savePng(b.closest(".fig"))));
 }
 
@@ -2000,7 +2244,7 @@ async function handleAnalyze() {
     const previous = await Store.getMemory(key);
     const strip = (r) => ({
       id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname,
-      race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, samples: r.samples || [],
+      race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, checkpoints: r.checkpoints || null, samples: r.samples || [],
     });
     const data = await postJson("/api/analyze", {
       subject: strip(subject), reference: strip(reference),

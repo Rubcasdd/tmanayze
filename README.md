@@ -33,6 +33,25 @@ coach that works from those measurements.
   line against the ghost's, the brake / turn-in / apex / exit points, distance ticks, the surface
   and the input timeline. Each figure has a Save PNG button, and the coach's note shows up in the
   Track tab next to that corner.
+- **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
+  the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
+  between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording
+  after the finish line, so runs are now cut at the finish, which also corrects the final gap and the last section.
+  Runs saved before the parser kept these times show equal-distance sections: re-import them.
+- **Tricks, jumps and landings:** from the car's recorded orientation the app scores every landing (nose angle against
+  the slope, sideways tilt, speed lost, flips in the air) and finds wall-rides and upside-down stretches. With several
+  ghosts selected it also shows what most of them do that you don't: a different line that gains time, a jump line, an
+  air-brake spot. They appear as cards on the overview and as flags on the track, and the coach is told about them.
+  Runs saved before this was added don't carry the orientation: re-import them.
+- **Input calm:** a 0-100 score for how calm your wheel and pedals were against the ghost's (a comparison on the same map,
+  not a skill rating).
+- **Share cards:** one click makes a 1200x630 picture of the lap or of a corner (line, markers, time lost) to save, copy or
+  share to Discord.
+- **Track of the Day:** the home page shows today's TOTD with the world record, how far your best is from it, and a button
+  that downloads the record ghost and compares it with your run.
+- **Challenge links:** "Challenge link" on a comparison stores both runs for 30 days under a short link; anyone who opens
+  it sees the comparison. Needs Upstash / Vercel KV on Vercel (it works in memory locally); only runs you choose to share
+  are stored.
 - **Full world leaderboard:** page through every player, jump to a rank, or find where
   your own time sits (the board is searched by time, so it works on any map).
 - **What to focus on:** ranked, titled focus areas ("Carry more speed through the
@@ -175,6 +194,9 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
 - `backend/mapblocks.py`, `surface.py` — read the map's blocks (own Gbx map parser, no keys) and
   turn them into a surface label for every point of the lap. It is an estimate: the labels come from
   the nearest blocks, so custom or very unusual blocks may show as "unknown".
+- `backend/checkpoints.py` — splits and checkpoint-based sections from the times stored in the replay.
+- `backend/driving.py` — landings, wall-rides, input smoothness and what the top ghosts share. `shares.py` — the 30-day store
+  behind challenge links. `public/share.js` — the share-card images.
 - `backend/inputs.py` — the steering / brake / lift runs through each corner.
 - `backend/focus.py` — ranks the titled focus areas from the measured
   corners/sections (deterministic, no AI, so they always match the charts).

@@ -24,6 +24,7 @@ def _compact(sample: dict) -> dict | None:
             "steer": round(float(sample["steer"]), 3),
             "gas": round(float(sample["gas"]), 2),
             "brake": round(float(sample["brake"]), 2),
+            **{k: sample[k] for k in ("fx", "fy", "fz", "ux", "uy", "uz") if k in sample},
         }
     except (KeyError, TypeError, ValueError):
         return None

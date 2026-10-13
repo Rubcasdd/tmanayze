@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import coach_knowledge, signals as signals_mod, techniques
+from . import checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -103,10 +103,18 @@ class Sample(BaseModel):
     steer: float
     gas: float
     brake: float
+    # the car's orientation, when the run was parsed with it (older stored runs don't have it)
+    fx: float | None = None
+    fy: float | None = None
+    fz: float | None = None
+    ux: float | None = None
+    uy: float | None = None
+    uz: float | None = None
 
 
 class RunPayload(BaseModel):
     id: str = Field(max_length=64)
+    checkpoints: list[int] | None = Field(default=None, max_length=200)  # the game's checkpoint times, finish last
     map_uid: str | None = None
     map_name: str | None = None
     player_nickname: str | None = None
@@ -122,6 +130,7 @@ class RunPayload(BaseModel):
             "player_nickname": self.player_nickname,
             "race_time_ms": self.race_time_ms,
             "world_position": self.world_position,
+            "checkpoints": self.checkpoints,
             "samples": [s.model_dump() for s in self.samples],
         }
 
@@ -209,6 +218,7 @@ def _run_record(
         "source_filename": filename,
         "uploaded_at": time.time(),
         "telemetry_available": parsed.telemetry_available,
+        "checkpoints": parsed.checkpoint_times,
         "samples": parsed.samples,
     }
 
@@ -299,13 +309,34 @@ def compare(body: CompareRequest):
         subject_flights = signals_mod.public_flights(subject.get("samples") or [])
     except Exception:  # jumps are a bonus; never break the comparison over them
         subject_flights = []
+    try:  # the map's own checkpoints cut the track into sections, and give split times
+        cp_info = checkpoints_mod.subject_passes(subject.get("samples") or [], subject.get("checkpoints"))
+    except Exception:
+        cp_info = None
+    cp_bounds = checkpoints_mod.section_bounds(cp_info)
+    try:
+        subject_driving = driving_mod.analyze(subject.get("samples") or [])
+    except Exception:  # landings, wall-rides and smoothness are extras too
+        subject_driving = None
+    points_by_ref: dict[str, list] = {}
+    flights_by_ref: dict[str, list] = {}
     for ref in body.references:
         reference = ref.as_run()
-        result = compare_runs(subject, reference)
+        result = compare_runs(subject, reference, cp_bounds)
         try:
             reference_flights = signals_mod.public_flights(reference.get("samples") or [])
         except Exception:
             reference_flights = []
+        try:
+            cp_rows = checkpoints_mod.rows(cp_info, reference.get("checkpoints")) if cp_info else []
+        except Exception:
+            cp_rows = []
+        try:
+            ref_driving = driving_mod.analyze(reference.get("samples") or [])
+        except Exception:
+            ref_driving = None
+        points_by_ref[ref.id] = result.points
+        flights_by_ref[ref.id] = reference_flights
         found = focus.find_focus(result.stats, result.corners, result.sections)
         out[ref.id] = {
             "reference_label": _label(reference, "ghost"),
@@ -318,7 +349,15 @@ def compare(body: CompareRequest):
             "reference_path": result.reference_path,
             "subject_flights": subject_flights,
             "reference_flights": reference_flights,
+            "driving": {"subject": subject_driving, "reference": ref_driving},
+            "checkpoints": cp_rows,
         }
+    try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
+        moves = driving_mod.field_moves(points_by_ref, subject_flights, flights_by_ref)
+    except Exception:
+        moves = []
+    for entry in out.values():
+        entry["field_moves"] = moves
     return out
 
 
@@ -374,7 +413,11 @@ def analyze(
         )
 
     subject, reference = body.subject.as_run(), body.reference.as_run()
-    result = compare_runs(subject, reference)
+    try:
+        cp_info = checkpoints_mod.subject_passes(subject.get("samples") or [], subject.get("checkpoints"))
+    except Exception:
+        cp_info = None
+    result = compare_runs(subject, reference, checkpoints_mod.section_bounds(cp_info))
     found = focus.find_focus(result.stats, result.corners, result.sections)
     map_uid = subject.get("map_uid") or reference.get("map_uid")
 
@@ -422,6 +465,20 @@ def analyze(
             figures_block = coach.figures_text(result.corners)
 
             signals_block, features, tech_findings = signals_mod.signals_text(samples, reference.get("samples") or [])
+            try:
+                if cp_info:
+                    signals_block += "\n" + checkpoints_mod.splits_text(checkpoints_mod.rows(cp_info, reference.get("checkpoints")))
+            except Exception:
+                pass
+            try:
+                s_drive = driving_mod.analyze(samples)
+                g_drive = driving_mod.analyze(reference.get("samples") or [])
+                extra = driving_mod.driving_text(s_drive, g_drive)
+                if extra:
+                    signals_block += "\n" + extra
+                tech_findings = tech_findings + driving_mod.landing_findings(s_drive, g_drive)
+            except Exception:
+                pass
             tech_findings = signals_mod.filter_by_surface(tech_findings, labels, dist)
             map_tags = ((insights or {}).get("map") or {}).get("tags") or []
             styles = techniques.detect_styles(map_tags, features, share)
@@ -578,11 +635,68 @@ def _totd_maps(query: str | None, count: int, months: int = 3) -> list[dict]:
                 "thumbnail_url": m.get("thumbnailUrl") or "",
                 "source": "trackmania.io",
                 "fallback": True,
-                "totd": f"{m.get('timestamp', '')[:10]}",
+                "totd": day.get("date") or "",
             })
             if len(out) >= count:
                 return out
     return out
+
+
+_today_cache: dict = {"at": 0.0, "value": None}
+
+
+@app.get("/api/tmio/totd/today")
+def tmio_totd_today():
+    """Today's Track of the Day and its world record (cached for ten minutes)."""
+    if _today_cache["value"] and time.time() - _today_cache["at"] < 600:
+        return _today_cache["value"]
+    maps = _totd_maps(None, 1, months=2)
+    if not maps:
+        raise HTTPException(502, "Today's Track of the Day isn't available from trackmania.io right now.")
+    m = maps[0]
+    wr = None
+    try:
+        entries = insights_mod.leaderboard_page(m["map_uid"], 0, 1)["entries"]
+        if entries:
+            wr = entries[0]
+    except tmio_client.TmioError:
+        pass
+    value = {"day": m.get("totd"), "map": m, "wr": wr}
+    _today_cache.update(at=time.time(), value=value)
+    return value
+
+
+class SharePayload(BaseModel):
+    subject: RunPayload
+    reference: RunPayload
+    note: str | None = Field(default=None, max_length=140)
+
+
+@app.get("/api/share/status")
+def share_status():
+    return {"available": shares.available()}
+
+
+@app.post("/api/share")
+def create_share(body: SharePayload, request: Request):
+    """Keep a comparison for 30 days under a short link. Only runs the visitor chose to share are stored."""
+    hit = ratelimit.get_limiter().check("share", _visitor(request), 12, 3600)
+    if not hit.allowed:
+        raise HTTPException(429, "You've made a lot of share links this hour. Try again later.", headers={"Retry-After": str(hit.retry_after)})
+    try:
+        share_id = shares.create(body.subject.as_run(), body.reference.as_run(), body.note)
+    except shares.ShareError as e:
+        hit.refund()
+        raise HTTPException(e.status, str(e)) from e
+    return {"id": share_id, "days": shares.TTL_S // 86400}
+
+
+@app.get("/api/share/{share_id}")
+def get_share(share_id: str):
+    try:
+        return shares.fetch(share_id)
+    except shares.ShareError as e:
+        raise HTTPException(e.status, str(e)) from e
 
 
 @app.get("/api/mx/search")

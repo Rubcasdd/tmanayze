@@ -55,6 +55,7 @@ class ParsedRun:
     player_nickname: str | None
     race_time_ms: int | None
     num_checkpoints: int | None
+    checkpoint_times: list = field(default_factory=list)  # ms from the start; the last is the finish
     samples: list[dict] = field(default_factory=list)
     telemetry_available: bool = False
 
@@ -158,17 +159,20 @@ def parse_gbx_bytes(data: bytes) -> ParsedRun:
         raise GbxParseError(f"could not read Gbx header: {e}") from e
 
     samples: list[dict] = []
+    checkpoints: list[int] = []
     if num_external == 0:
         body = _read_body(r, body_compression)
         if body:
             samples = _extract_vehicle_samples(body)
+            checkpoints = _checkpoint_times(body)
 
     return ParsedRun(
         map_uid=metadata.get("map_uid"),
         map_name=metadata.get("map_name"),
         player_nickname=metadata.get("player_nickname"),
-        race_time_ms=metadata.get("race_time_ms"),
+        race_time_ms=metadata.get("race_time_ms") if metadata.get("race_time_ms") is not None else (checkpoints[-1] if checkpoints else None),
         num_checkpoints=metadata.get("num_checkpoints"),
+        checkpoint_times=checkpoints,
         samples=samples,
         telemetry_available=bool(samples),
     )
@@ -364,8 +368,55 @@ def _find_vehicle_buffers(record: bytes, version: int) -> list[tuple[int, bytes]
         return best
 
 
+_CP_CHUNK = struct.pack("<II", 0x0309200B, 0x534B4950)  # the ghost's checkpoint chunk and the marker of a skippable chunk
+
+
+def _checkpoint_times(body: bytes) -> list[int]:
+    """The checkpoint times the game stored with the ghost, in ms from the start, the finish last.
+    The chunk is [id][skip marker][size][count] then count pairs of (time, stunt score)."""
+    i = body.find(_CP_CHUNK)
+    while i >= 0:
+        try:
+            size, count = struct.unpack_from("<ii", body, i + 8)
+            if 0 < count <= 200 and size == 4 + count * 8:
+                times = [struct.unpack_from("<i", body, i + 16 + k * 8)[0] for k in range(count)]
+                if all(t > 0 for t in times) and all(b > a for a, b in zip(times, times[1:])):
+                    return times
+        except struct.error:
+            break
+        i = body.find(_CP_CHUNK, i + 1)
+    return []
+
+
 _POSITION = struct.Struct("<3f")
 _SPEED_RAW = struct.Struct("<h")
+_ROTATION = struct.Struct("<Hhh")  # angle, axis heading, axis pitch (at offset 59)
+
+
+def _orientation(buf: bytes) -> dict:
+    """The car's forward and up vectors. The game stores a rotation as an angle about an axis
+    given by two angles; the quaternion (axis * sin(angle), cos(angle)) turns the car's own axes
+    (z forward, y up) into the world's. Checked against real replays: forward matches the
+    direction of travel to ~0.99 and upside-down frames show up as up.y < 0."""
+    angle_raw, heading_raw, pitch_raw = _ROTATION.unpack_from(buf, 59)
+    angle = angle_raw / 65535.0 * math.pi
+    heading = heading_raw / 32767.0 * math.pi
+    pitch = pitch_raw / 32767.0 * (math.pi / 2)
+    ax, ay, az = math.cos(pitch) * math.cos(heading), math.cos(pitch) * math.sin(heading), math.sin(pitch)
+    s, w = math.sin(angle), math.cos(angle)
+    qx, qy, qz = ax * s, ay * s, az * s
+
+    def rotate(vx: float, vy: float, vz: float) -> tuple[float, float, float]:
+        cx, cy, cz = qy * vz - qz * vy, qz * vx - qx * vz, qx * vy - qy * vx
+        dx, dy, dz = qy * cz - qz * cy, qz * cx - qx * cz, qx * cy - qy * cx
+        return vx + 2 * (w * cx + dx), vy + 2 * (w * cy + dy), vz + 2 * (w * cz + dz)
+
+    f = rotate(0.0, 0.0, 1.0)
+    u = rotate(0.0, 1.0, 0.0)
+    return {
+        "fx": round(f[0], 3), "fy": round(f[1], 3), "fz": round(f[2], 3),
+        "ux": round(u[0], 3), "uy": round(u[1], 3), "uz": round(u[2], 3),
+    }
 
 
 def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
@@ -379,7 +430,7 @@ def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
     steer = (buf[14] / 255.0 - 0.5) * 2.0
     brake = buf[18] / 255.0
     gas = min(1.0, buf[15] / 255.0 + brake)
-    return {
+    sample = {
         "time_ms": time_ms,
         "x": round(x, 2),
         "y": round(y, 2),
@@ -389,3 +440,5 @@ def _decode_sample(time_ms: int, buf: bytes) -> dict | None:
         "gas": round(gas, 2),
         "brake": round(brake, 2),
     }
+    sample.update(_orientation(buf))
+    return sample

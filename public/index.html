@@ -37,6 +37,17 @@
         </div>
       </div>
 
+      <section class="totd-card" id="totd-card" hidden>
+        <img class="totd-thumb" id="totd-thumb" alt="" />
+        <div class="totd-body">
+          <div class="totd-kicker">Track of the Day · <span id="totd-date"></span></div>
+          <h2 id="totd-name"></h2>
+          <p class="hint" id="totd-by"></p>
+          <p class="totd-status" id="totd-status"></p>
+          <div class="totd-actions"><button type="button" class="btn primary" id="totd-go"></button></div>
+        </div>
+      </section>
+
       <div class="dropzone" id="dropzone">
         <div class="dz-text">
           <strong>Add your replays.</strong>
@@ -171,6 +182,7 @@
 
         <!-- OVERVIEW -->
         <div class="view" data-view="overview">
+          <div class="challenge-banner" id="challenge-banner" hidden></div>
           <div class="ws-empty" id="ws-empty" hidden></div>
           <div id="overview-body">
           <div class="stats" id="stats-row"></div>
@@ -184,9 +196,27 @@
             <div id="strength-cards" class="focus-grid strengths"></div>
           </div>
 
+          <div id="cp-area" hidden>
+            <div class="block-head">
+              <h2 class="section-title">Checkpoints</h2>
+              <span class="hint">The game's own checkpoint times. Select a row to see that stretch on the graphs.</span>
+            </div>
+            <div id="cp-body"></div>
+          </div>
+
+          <div id="moves-area" hidden>
+            <div class="block-head">
+              <h2 class="section-title">Tricks, jumps and landings</h2>
+              <span class="hint">What the ghosts do that you don't, and how your landings went. Select one to see it on the graphs.</span>
+            </div>
+            <div id="moves-cards" class="focus-grid"></div>
+          </div>
+
           <div id="lap-area">
             <div class="block-head">
               <h2 class="section-title">The whole lap</h2>
+              <button type="button" class="btn tiny" id="share-lap">Share card</button>
+              <button type="button" class="btn tiny" id="share-link" title="Keep this comparison for 30 days under a link anyone can open">Challenge link</button>
               <span class="hint">All graphs share one distance axis. Hover any of them, or the track, to read both runs at that exact spot.</span>
             </div>
             <div class="highlight-chip" id="highlight-chip" hidden></div>
@@ -336,6 +366,7 @@
 <script src="store.js"></script>
 <script src="app.js"></script>
 <script src="figures.js"></script>
+<script src="share.js"></script>
 <script src="track.js"></script>
 </body>
 </html>

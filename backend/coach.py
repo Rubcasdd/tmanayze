@@ -105,7 +105,7 @@ def _corner_line(c: dict) -> str:
 def _section_line(s: dict) -> str:
     corners = ", ".join(str(i) for i in s["corner_indices"]) or "none"
     return (
-        f"Section {s['index']} ({s['distance_start']:.0f}-{s['distance_end']:.0f}m): "
+        f"{s['label'] if s.get('kind') == 'checkpoint' else 'Section ' + str(s['index'])} ({s['distance_start']:.0f}-{s['distance_end']:.0f}m): "
         f"{_verb(s['time_change_ms'])} {abs(s['time_change_ms'])}ms | avg speed "
         f"{s['subject_avg_speed']:.0f} vs {s['reference_avg_speed']:.0f} km/h "
         f"({_speed_word(s['subject_avg_speed'], s['reference_avg_speed'])}), slowest point "
@@ -452,7 +452,8 @@ def build_user_prompt(
         out.append("\n" + focus_block)
 
     if sections:
-        out.append("\nTRACK SECTIONS (equal-distance slices, track order):")
+        between = sections[0].get("kind") == "checkpoint"
+        out.append("\nTRACK SECTIONS (the stretches between the map's checkpoints, track order):" if between else "\nTRACK SECTIONS (equal-distance slices, track order):")
         out.extend(_section_line(s) for s in sections)
 
     if corners:

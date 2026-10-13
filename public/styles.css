@@ -284,6 +284,52 @@ select { padding-right: 6px; }
 .stat .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .stats-table-wrap { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 4px 8px; overflow-x: auto; }
 
+/* track of the day */
+.totd-card { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: stretch; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px; margin-bottom: 18px; }
+.totd-thumb { width: 100%; height: 100%; min-height: 120px; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
+.totd-kicker { font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+.totd-body h2 { font-size: 30px; line-height: 1.1; margin: 4px 0 2px; }
+.totd-status { margin: 8px 0 12px; color: var(--ink-2); }
+.totd-status b { color: var(--ink); }
+@media (max-width: 640px) { .totd-card { grid-template-columns: 1fr; } }
+.challenge-link { display: flex; gap: 8px; margin: 10px 0; }
+.challenge-link input { flex: 1; min-width: 0; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: inherit; }
+.challenge-banner { background: rgba(212, 240, 60, 0.08); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 0 0 12px; font-size: 14px; }
+
+/* share cards */
+.share-box { width: min(980px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.share-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.share-actions .share-close { margin-left: auto; }
+.share-note { flex: 1; min-width: 160px; }
+
+/* checkpoints */
+.cp-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-variant-numeric: tabular-nums; }
+.cp-table th { text-align: right; font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.cp-table th:first-child, .cp-table td:first-child { text-align: left; }
+.cp-table td { text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.cp-table tr:last-child td { border-bottom: 0; }
+.cp-table tbody tr { cursor: pointer; }
+.cp-table tbody tr:hover { background: var(--surface-2); }
+.cp-table tr.on { background: var(--surface-2); outline: 1px solid var(--ink); }
+.cp-table td.loss { color: var(--loss); }
+.cp-table td.gain { color: var(--gain); }
+.cp-bar { display: inline-block; height: 8px; border-radius: 2px; vertical-align: middle; margin-left: 8px; min-width: 2px; }
+.cp-bar.loss { background: var(--loss); }
+.cp-bar.gain { background: var(--gain); }
+
+/* tricks, jumps and landings */
+.move-card { display: grid; grid-template-columns: 34px 1fr auto; gap: 4px 14px; align-items: start; text-align: left; font: inherit; color: inherit; cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 12px 14px; }
+.move-card:hover { border-color: var(--ink-2); border-left-color: var(--accent); }
+.move-card.on { background: var(--surface-2); border-color: var(--ink); }
+.move-card.bad { border-left-color: var(--loss); }
+.move-card.good { border-left-color: var(--gain); }
+.move-icon { font-family: var(--font-head); font-size: 22px; font-weight: 700; line-height: 1; color: var(--accent); }
+.move-card.bad .move-icon { color: var(--loss); }
+.move-card.good .move-icon { color: var(--gain); }
+.move-title { font-weight: 700; }
+.move-tag { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.move-text { grid-column: 2 / 4; color: var(--ink-2); font-size: 14px; }
+
 /* focus */
 .focus-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
 .focus-grid.strengths { margin-top: 12px; }
