@@ -38,6 +38,10 @@ coach that works from those measurements.
   time lost or gained), the checkpoints and every trick. Below it, a "Ground" card shows what share of the lap is on each
   surface, your speed against the ghost's and the time you gain or lose on it, with a one-line tip per surface. The ground
   also runs as a thin strip along every chart, as a "Ground" colour mode on the maps, and as a chip on each corner.
+- **Corner by corner, on the overview:** a card for every corner with a picture of your line (white) against the ghost's
+  (blue), numbered turn-in / apex / throttle points, your entry, slowest and exit speeds against the ghost's, where each of
+  you braked, the ground under it, and any trick in or around it (jump line, landing, wall ride, air-brake spot). Click the
+  picture for the full figure, or use the buttons to show it on the graphs or make a share card.
 - **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
   the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
   between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording

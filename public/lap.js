@@ -320,6 +320,93 @@ function refreshGround() {
   const p = currentPrimary();
   renderRibbon(p);
   renderGround(p);
+  renderGallery(p);
   if (state.compare) renderCorners(state.compare.data);
   state.charts.forEach((c) => c.update("none"));
 }
+
+
+// ---------------------------------------------------------------- corner by corner
+
+const GALLERY = { sort: "loss", limit: 12 };
+
+// the tricks that happen in or just around a corner
+function cornerTricks(primary, c) {
+  return collectTricks(primary).filter((it) => it.to >= c.distance_start - 40 && it.from <= c.distance_end + 40);
+}
+
+function cornerGround(primary, c) {
+  const labels = groundLabels(primary);
+  if (!labels) return null;
+  const count = {};
+  primary.points.forEach((p, i) => { if (p.distance_m >= c.distance_start && p.distance_m <= c.distance_end) count[labels[i]] = (count[labels[i]] || 0) + 1; });
+  const best = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+  return best ? best[0] : null;
+}
+
+function speedCell(label, you, ghost) {
+  const d = Math.round(you - ghost);
+  const cls = d > 1 ? "gain" : d < -1 ? "loss" : "";
+  return `<div class="spd"><small>${label}</small><b>${Math.round(you)}</b><span class="vs">vs ${Math.round(ghost)}</span><i class="${cls}">${d > 0 ? "+" : d < 0 ? "−" : ""}${Math.abs(d)}</i></div>`;
+}
+
+function cornerCardHtml(primary, c, surf) {
+  const pic = Figures.cornerFigure(c, primary, surf, 420, { compact: true });
+  const g = cornerGround(primary, c);
+  const t = c.time_change_ms;
+  const tricks = cornerTricks(primary, c);
+  const ghost = g ? `<span class="ground-chip"><i style="background:${groundColor(g)}"></i>${esc(groundName(g))}</span>` : "";
+  return `<article class="corner-card" data-corner="${c.corner_index}">
+    <header>
+      <span class="cc-num">${c.corner_index}</span>
+      <div class="cc-title"><b>${esc(c.direction)} ${c.turn_deg}°</b>${ghost}<small>${Math.round(c.distance_start)}–${Math.round(c.distance_end)} m</small></div>
+      <span class="cc-time ${t > 0 ? "loss" : t < 0 ? "gain" : ""}">${t === 0 ? "even" : `${t > 0 ? "+" : "−"}${(Math.abs(t) / 1000).toFixed(3)} s`}</span>
+    </header>
+    <button type="button" class="cc-pic" data-act="open" title="Open the full picture">${pic}</button>
+    <div class="cc-speeds">
+      ${speedCell("Entry", c.subject_entry_speed, c.reference_entry_speed)}
+      ${speedCell("Slowest", c.subject_min_speed, c.reference_min_speed)}
+      ${speedCell("Exit", c.subject_exit_speed, c.reference_exit_speed)}
+    </div>
+    <div class="cc-note">${brakeCell(c)}</div>
+    ${tricks.length ? `<div class="cc-tricks">${tricks.map((it) => `<div class="trick-line" style="--c:${it.color}"><b>${it.glyph} ${esc(it.title)}</b> ${esc(it.text)}</div>`).join("")}</div>` : ""}
+    <footer>
+      <button type="button" class="btn tiny" data-act="open">Full picture</button>
+      <button type="button" class="btn tiny" data-act="graphs">On the graphs</button>
+      <button type="button" class="btn tiny" data-act="share">Share card</button>
+    </footer>
+  </article>`;
+}
+
+function renderGallery(primary) {
+  const area = $("#gallery-area"), box = $("#gallery");
+  const corners = primary && primary.stats.telemetry ? (primary.corners || []).filter((c) => c.phases) : [];
+  area.hidden = !corners.length;
+  if (!corners.length) return;
+  const surf = groundLabels(primary);
+  const sorted = [...corners].sort(GALLERY.sort === "order" ? (a, b) => a.corner_index - b.corner_index : (a, b) => b.time_change_ms - a.time_change_ms);
+  const shown = sorted.slice(0, GALLERY.limit);
+  box.innerHTML = shown.map((c) => cornerCardHtml(primary, c, surf)).join("") +
+    (sorted.length > shown.length ? `<button type="button" class="btn gallery-more" id="gallery-more">Show all ${sorted.length} corners</button>` : "");
+  const more = $("#gallery-more");
+  if (more) more.addEventListener("click", () => { GALLERY.limit = 999; renderGallery(currentPrimary()); });
+  $$(".corner-card", box).forEach((card) => {
+    const c = corners.find((x) => x.corner_index === +card.dataset.corner);
+    $$("[data-act]", card).forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.act === "open") Figures.modal(c, primary, groundLabels(primary));
+      else if (b.dataset.act === "share") shareCorner(c.corner_index);
+      else {
+        setHighlight({ from: c.distance_start, to: c.distance_end, title: `Corner ${c.corner_index}`, section: null });
+        $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }));
+  });
+  $$("#gallery-sort button").forEach((b) => b.classList.toggle("on", b.dataset.sort === GALLERY.sort));
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#gallery-sort button");
+  if (!b) return;
+  GALLERY.sort = b.dataset.sort;
+  renderGallery(currentPrimary());
+});

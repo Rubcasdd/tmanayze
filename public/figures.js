@@ -158,7 +158,8 @@ const Figures = (() => {
 
   // ------------------------------------------------------------------- the corner picture
 
-  function cornerFigure(c, data, surf, W = 640) {
+  function cornerFigure(c, data, surf, W = 640, opts = {}) {
+    const compact = !!opts.compact; // the gallery version: just the picture, the numbers are in the card around it
     const pts = data.points, ph = c.phases;
     // look back far enough to contain every brake and turn-in point (fast maps need much more than 90 m)
     let dLo = c.distance_start - 90, dHi = c.distance_end + 50;
@@ -174,14 +175,18 @@ const Figures = (() => {
     if (seg.length < 3) return "";
 
     const present = ph ? KINDS.filter((kd) => ph.reference[kd.key] || ph.subject[kd.key]) : [];
-    const ROWH = 24, mapH = 372, top = 58, pad = 30;
-    const H = mapH + (present.length ? 10 + present.length * ROWH : 0);
+    const ROWH = 24, top = compact ? 16 : 58, pad = compact ? 24 : 30;
+    let mapH = 372;
+    let H = 0;
     // fit everything we draw into the picture, z down
     const box = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
     const add = (x, z) => { box.minX = Math.min(box.minX, x); box.maxX = Math.max(box.maxX, x); box.minZ = Math.min(box.minZ, z); box.maxZ = Math.max(box.maxZ, z); };
     seg.forEach((p) => { add(p.x, p.z); add(p.reference_x, p.reference_z); });
     if (ph) for (const side of ["subject", "reference"]) for (const k of KINDS) { const q = ph[side][k.key]; if (q) add(q.x, q.z); }
     const dx = Math.max(10, box.maxX - box.minX), dz = Math.max(10, box.maxZ - box.minZ);
+    // the gallery picture is as tall as its content needs (within limits), so it fills its card
+    if (compact) mapH = Math.max(190, Math.min(340, top + dz * ((W - pad * 2) / dx) + pad * 2));
+    H = mapH + (!compact && present.length ? 10 + present.length * ROWH : 0);
     const k = Math.min((W - pad * 2) / dx, (mapH - top - pad) / dz);
     const ox = (W - dx * k) / 2, oz = top + (mapH - top - pad - dz * k) / 2;
     const P = (x, z) => [ox + (x - box.minX) * k, oz + (z - box.minZ) * k];
@@ -210,7 +215,7 @@ const Figures = (() => {
         s += `<path d="${r.pts.map((q, i) => `${i ? "L" : "M"}${f1(q[0])} ${f1(q[1])}`).join(" ")}" fill="none" stroke="${SURFACE_COLORS[r.sfc] || "#555"}" stroke-opacity="0.3" stroke-width="24" stroke-linecap="butt" stroke-linejoin="round"/>`;
       }
       let lx = W - 14;
-      [...used].reverse().forEach((u) => {
+      [...used].reverse().filter(() => !compact).forEach((u) => {
         const label = SURFACE_NAMES[u] || u;
         s += text(label, lx, 16, { size: 11, fill: MUTED, anchor: "end", weight: 500, halo: 0 });
         lx -= label.length * 6.2 + 20;
@@ -260,25 +265,25 @@ const Figures = (() => {
         }
         if (g) {
           const [gx, gy] = P(g.x, g.z);
-          s += `<circle cx="${f1(gx)}" cy="${f1(gy)}" r="11" fill="${PANEL}" fill-opacity="0.85" stroke="${kd.color}" stroke-width="3"/>`;
-          s += text(String(n), gx, gy + 0.5, { size: 12, fill: kd.color, anchor: "middle", halo: 0, weight: 800 });
+          s += `<circle cx="${f1(gx)}" cy="${f1(gy)}" r="${compact ? 13 : 11}" fill="${PANEL}" fill-opacity="0.85" stroke="${kd.color}" stroke-width="3"/>`;
+          s += text(String(n), gx, gy + 0.5, { size: compact ? 14 : 12, fill: kd.color, anchor: "middle", halo: 0, weight: 800 });
         }
       }
     }
 
     // title
-    s += text(`Corner ${c.corner_index}  ·  ${name(c)} ${c.turn_deg}°  ·  ${Math.round(c.distance_start)}–${Math.round(c.distance_end)} m`, 14, 16, { size: 15, weight: 700, halo: 0 });
-    s += text(`${secs(c.time_change_ms)} in this corner  ·  slowest ${km(c.subject_min_speed)} (you) vs ${km(c.reference_min_speed)} (ghost)`, 14, 38, { size: 12, fill: c.time_change_ms > 0 ? "#ff5a73" : "#2fe3a2", weight: 500, halo: 0 });
+    if (!compact) s += text(`Corner ${c.corner_index}  ·  ${name(c)} ${c.turn_deg}°  ·  ${Math.round(c.distance_start)}–${Math.round(c.distance_end)} m`, 14, 16, { size: 15, weight: 700, halo: 0 });
+    if (!compact) s += text(`${secs(c.time_change_ms)} in this corner  ·  slowest ${km(c.subject_min_speed)} (you) vs ${km(c.reference_min_speed)} (ghost)`, 14, 38, { size: 12, fill: c.time_change_ms > 0 ? "#ff5a73" : "#2fe3a2", weight: 500, halo: 0 });
     // legend and scale
     const ly = mapH - 16;
-    s += `<line x1="14" y1="${ly}" x2="40" y2="${ly}" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>` + text("you", 46, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
-    s += `<line x1="86" y1="${ly}" x2="112" y2="${ly}" stroke="${GHOST}" stroke-width="6" stroke-linecap="round"/>` + text("ghost", 118, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
-    s += text("ring = ghost, dot = you", 176, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
+    if (!compact) s += `<line x1="14" y1="${ly}" x2="40" y2="${ly}" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>` + text("you", 46, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
+    if (!compact) s += `<line x1="86" y1="${ly}" x2="112" y2="${ly}" stroke="${GHOST}" stroke-width="6" stroke-linecap="round"/>` + text("ghost", 118, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
+    if (!compact) s += text("ring = ghost, dot = you", 176, ly, { size: 11, fill: MUTED, weight: 500, halo: 0 });
     const bar = [10, 20, 25, 50, 100, 200, 400].find((v) => v * k >= 70) || 400;
     s += `<line x1="${W - 14 - bar * k}" y1="${ly}" x2="${W - 14}" y2="${ly}" stroke="${INK}" stroke-width="2"/>` + text(`${bar} m`, W - 14 - (bar * k) / 2, ly - 12, { size: 11, anchor: "middle", fill: MUTED, weight: 500, halo: 0 });
 
     // the numbered key under the map: where each point is for both of you and how you differ
-    if (present.length) {
+    if (!compact && present.length) {
       s += `<line x1="14" y1="${mapH}" x2="${W - 14}" y2="${mapH}" stroke="${LINE}"/>`;
       present.forEach((kd, i) => {
         const g = ph.reference[kd.key], y = ph.subject[kd.key], ry = mapH + 10 + i * ROWH + ROWH / 2;
