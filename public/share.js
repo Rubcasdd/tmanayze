@@ -6,7 +6,7 @@
 
 const Share = (() => {
   const W = 1200, H = 630;
-  const BG0 = "#1b1b19", BG1 = "#0f0f0e", INK = "#f0ede6", MUTED = "#8a867d", ACCENT = "#d4f03c", LOSS = "#ff6252", GAIN = "#3dd68c";
+  const BG0 = "#131b2e", BG1 = "#080b13", INK = "#eef2fb", MUTED = "#7d8aa6", ACCENT = "#8f7bff", LOSS = "#ff5a73", GAIN = "#2fe3a2";
   const FONT = `"Barlow", system-ui, -apple-system, "Segoe UI", sans-serif`;
 
   const secs = (ms) => `${ms > 0 ? "+" : ms < 0 ? "−" : ""}${(Math.abs(ms) / 1000).toFixed(3)}s`;
@@ -79,7 +79,7 @@ const Share = (() => {
     ctx.lineWidth = 7;
     for (let i = 1; i < n; i++) {
       const t = Math.max(-1, Math.min(1, slope[i] / scale));
-      ctx.strokeStyle = t >= 0 ? mix("6b675f", "ff6252", t) : mix("6b675f", "3dd68c", -t);
+      ctx.strokeStyle = t >= 0 ? mix("59668a", "ff5a73", t) : mix("59668a", "2fe3a2", -t);
       const [x0, y0] = P(pts[i - 1]), [x1, y1] = P(pts[i]);
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     }

@@ -22,12 +22,12 @@ const state = {
   trackMap: null,
 };
 
-const GHOST_COLORS = ["#3987e5", "#d95926", "#d55181", "#c98500", "#199e70"];
-const YOU = "#f0ede6";
-const GAIN = "#3dd68c";
-const LOSS = "#ff6252";
-const GRID = "#2e2d2a";
-const MUTED = "#8a867d";
+const GHOST_COLORS = ["#5b8def", "#ff8a3d", "#d55181", "#f2c744", "#35d9a0"];
+const YOU = "#eef2fb";
+const GAIN = "#2fe3a2";
+const LOSS = "#ff5a73";
+const GRID = "#223049";
+const MUTED = "#7d8aa6";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -1054,6 +1054,8 @@ function renderComparison() {
   renderFocus(primary);
   renderCheckpoints(primary);
   renderMoves(primary);
+  renderRibbon(primary);
+  renderGround(primary);
   const chartable = ids.filter((id) => data[id].stats.telemetry);
   $("#chart-empty-note").hidden = chartable.length > 0;
   $("#lap-area").hidden = chartable.length === 0;
@@ -1089,6 +1091,9 @@ async function ensureSurface() {
     state.surface = { key, labels: null, available: false };
   }
   if (typeof TrackPage !== "undefined") TrackPage.onSurface();
+  refreshGround();
+  updateMapLegend();
+  drawTrackMap();
 }
 
 function renderStats(data, ids) {
@@ -1121,7 +1126,7 @@ function renderStats(data, ids) {
   const rows = ids
     .map((id) => {
       const s = data[id].stats;
-      const dot = `<span class="legend-line" style="--c:${s.telemetry ? ghostColor(id) : "#5a5851"}"></span> `;
+      const dot = `<span class="legend-line" style="--c:${s.telemetry ? ghostColor(id) : "#4a5e86"}"></span> `;
       const label = `${dot}${esc(runLabel(id))}${id === state.primaryRefId ? ' <span class="hint">(coach uses this one)</span>' : ""}`;
       if (!s.telemetry) {
         return `<tr class="dim"><td>${label}</td><td class="${s.final_delta_ms > 0 ? "pos" : "neg"}">${fmtGap(s.final_delta_ms)}</td><td colspan="5">time only, no telemetry</td></tr>`;
@@ -1360,7 +1365,7 @@ Chart.register({
     if (x == null || !scales.x || x < scales.x.min || x > scales.x.max) return;
     const px = scales.x.getPixelForValue(x);
     ctx.save();
-    ctx.strokeStyle = "rgba(240,237,230,0.55)";
+    ctx.strokeStyle = "rgba(238,242,251,0.55)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(px, a.top);
@@ -1373,7 +1378,7 @@ Chart.register({
       const py = scales.y.getPixelForValue(pt.y);
       if (py < a.top || py > a.bottom) return;
       ctx.fillStyle = ds.borderColor;
-      ctx.strokeStyle = "#121211";
+      ctx.strokeStyle = "#0a0e17";
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(px, py, 4, 0, Math.PI * 2);
@@ -1399,10 +1404,21 @@ Chart.register({
       ctx.fillStyle = b.color;
       ctx.fillRect(x1, a.top, x2 - x1, a.bottom - a.top);
       if (opts.labels && b.label && x2 - x1 > 15) {
-        ctx.fillStyle = "rgba(189,185,175,0.75)";
+        ctx.fillStyle = "rgba(180,191,214,0.75)";
         ctx.font = '600 11px "IBM Plex Mono", monospace';
         ctx.textAlign = "center";
         ctx.fillText(b.label, (x1 + x2) / 2, a.top + 12);
+      }
+    }
+    if (opts.ground && typeof surfaceBands === "function") {
+      for (const b of surfaceBands(scales.x.min, scales.x.max)) {
+        const x1 = scales.x.getPixelForValue(Math.max(b.from, scales.x.min));
+        const x2 = scales.x.getPixelForValue(Math.min(b.to, scales.x.max));
+        if (x2 <= x1) continue;
+        ctx.fillStyle = b.color;
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(x1, a.bottom - 5, x2 - x1, 5);
+        ctx.globalAlpha = 1;
       }
     }
     const h = state.highlight;
@@ -1410,9 +1426,9 @@ Chart.register({
       const x1 = scales.x.getPixelForValue(Math.max(h.from, scales.x.min));
       const x2 = scales.x.getPixelForValue(Math.min(h.to, scales.x.max));
       if (x2 > x1) {
-        ctx.fillStyle = "rgba(240,237,230,0.10)";
+        ctx.fillStyle = "rgba(238,242,251,0.10)";
         ctx.fillRect(x1, a.top, x2 - x1, a.bottom - a.top);
-        ctx.strokeStyle = "rgba(240,237,230,0.7)";
+        ctx.strokeStyle = "rgba(238,242,251,0.7)";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x1, a.top); ctx.lineTo(x1, a.bottom);
@@ -1463,7 +1479,7 @@ function lineChart(canvas, datasets, o) {
         y: {
           min: o.yMin, max: o.yMax,
           title: { display: !!o.yTitle, text: o.yTitle, color: MUTED },
-          grid: { color: (c) => (o.zeroLine && c.tick.value === 0 ? "#77736a" : GRID) },
+          grid: { color: (c) => (o.zeroLine && c.tick.value === 0 ? "#4a5e86" : GRID) },
           ticks: o.yFmt ? { callback: o.yFmt } : {},
         },
       },
@@ -1478,7 +1494,7 @@ function lineChart(canvas, datasets, o) {
           },
         },
         sync: { group: modal ? null : o.group || null },
-        bands: { bands: o.bands || [], labels: !!o.labels },
+        bands: { bands: o.bands || [], labels: !!o.labels, ground: o.ground !== false },
       },
     },
   });
@@ -1494,7 +1510,7 @@ function cornerBands(corners, from = -Infinity, to = Infinity) {
     .map((c) => {
       const k = Math.min(1, Math.abs(c.time_change_ms) / maxAbs);
       const color =
-        c.time_change_ms > 0 ? `rgba(255,98,82,${0.05 + k * 0.17})` : c.time_change_ms < 0 ? `rgba(61,214,140,${0.05 + k * 0.15})` : "rgba(138,134,125,0.06)";
+        c.time_change_ms > 0 ? `rgba(255,90,115,${0.05 + k * 0.17})` : c.time_change_ms < 0 ? `rgba(47,227,162,${0.05 + k * 0.15})` : "rgba(125,138,166,0.06)";
       return { from: c.distance_start, to: c.distance_end, color, label: String(c.corner_index) };
     });
 }
@@ -1561,7 +1577,7 @@ function renderLap(data, ids) {
       if (id === primaryId) {
         d.borderDash = [];
         d.borderColor = ghostColor(id);
-        d.fill = { target: "origin", above: "rgba(255,98,82,0.16)", below: "rgba(61,214,140,0.16)" };
+        d.fill = { target: "origin", above: "rgba(255,90,115,0.16)", below: "rgba(47,227,162,0.16)" };
       }
       return d;
     });
@@ -1574,7 +1590,7 @@ function renderLap(data, ids) {
   plotCard(container, { title: "Speed difference", hint: "km/h, you minus the ghost · above 0 you are faster", height: 210 }, (canvas, b) => {
     const ds = ids.map((id) => ({
       ...solid(runLabel(id), xy(data[id].points, (p) => p.subject_speed - p.reference_speed), ghostColor(id), id === primaryId ? 2 : 1.4),
-      fill: id === primaryId ? { target: "origin", above: "rgba(61,214,140,0.2)", below: "rgba(255,98,82,0.2)" } : false,
+      fill: id === primaryId ? { target: "origin", above: "rgba(47,227,162,0.2)", below: "rgba(255,90,115,0.2)" } : false,
     }));
     return lineChart(canvas, ds, lp({
       ...b, yTitle: "km/h", zeroLine: true,
@@ -1589,8 +1605,8 @@ function renderLap(data, ids) {
   });
 
   plotCard(container, { title: "Brake and throttle", hint: "your throttle (grey), your brake (red) and the ghost's brake (dashed)", height: 190 }, (canvas, b) => {
-    const gas = { ...solid("your throttle", xy(base, (p) => p.subject_gas ?? 0), "#8a867d", 1), fill: "origin", backgroundColor: "rgba(138,134,125,0.22)", stepped: true, noDot: false };
-    const brake = { ...solid("your brake", xy(base, (p) => p.subject_brake ?? 0), LOSS, 1.6), fill: "origin", backgroundColor: "rgba(255,98,82,0.28)", stepped: true };
+    const gas = { ...solid("your throttle", xy(base, (p) => p.subject_gas ?? 0), "#7d8aa6", 1), fill: "origin", backgroundColor: "rgba(125,138,166,0.22)", stepped: true, noDot: false };
+    const brake = { ...solid("your brake", xy(base, (p) => p.subject_brake ?? 0), LOSS, 1.6), fill: "origin", backgroundColor: "rgba(255,90,115,0.28)", stepped: true };
     const ghostBrake = dashed(`${runLabel(primaryId)} brake`, xy(primary.points, (p) => p.reference_brake ?? 0), ghostColor(primaryId), 1.8);
     ghostBrake.stepped = true;
     return lineChart(canvas, [gas, brake, ghostBrake], lp({ ...b, yMin: 0, yMax: 1.05, yTitle: "0–1" }));
@@ -1687,8 +1703,16 @@ function updateMapLegend() {
   if (!tm) return;
   $("#map-legend").innerHTML =
     tm.mode === "time"
-      ? `<span>gaining</span><span class="ramp" style="background:linear-gradient(90deg,${GAIN},#6b675f,${LOSS})"></span><span>losing</span>`
+      ? `<span>gaining</span><span class="ramp" style="background:linear-gradient(90deg,${GAIN},#59668a,${LOSS})"></span><span>losing</span>`
+      : tm.mode === "ground"
+      ? groundLegendHtml()
       : `<span>${Math.round(tm.vmin)} km/h</span><span class="ramp" style="background:linear-gradient(90deg,#27405f,#8fc2ff)"></span><span>${Math.round(tm.vmax)}</span>`;
+}
+
+function groundLegendHtml() {
+  const labels = groundLabels(currentPrimary());
+  if (!labels) return `<span>${state.surface && state.surface.pending ? "Reading the map's blocks…" : "The ground isn't available for this map"}</span>`;
+  return [...new Set(labels)].map((s) => `<span><i style="background:${groundColor(s)}"></i>${esc(groundName(s))}</span>`).join("");
 }
 
 function drawTrackMap() {
@@ -1724,7 +1748,7 @@ function drawTrackMap() {
   // highlighted stretch gets a halo under the line
   const hl = state.highlight;
   if (hl) {
-    ctx.strokeStyle = "rgba(240,237,230,0.28)";
+    ctx.strokeStyle = "rgba(238,242,251,0.28)";
     ctx.lineWidth = 15;
     ctx.beginPath();
     let started = false;
@@ -1739,7 +1763,10 @@ function drawTrackMap() {
     let c;
     if (tm.mode === "time") {
       const t = Math.max(-1, Math.min(1, tm.slope[i] / tm.scale));
-      c = t >= 0 ? mix("6b675f", "ff6252", t) : mix("6b675f", "3dd68c", -t);
+      c = t >= 0 ? mix("59668a", "ff5a73", t) : mix("59668a", "2fe3a2", -t);
+    } else if (tm.mode === "ground") {
+      const gl = groundLabels(currentPrimary());
+      c = gl ? groundColor(gl[i]) : "#59668a";
     } else {
       c = mix("27405f", "8fc2ff", (pts[i].subject_speed - tm.vmin) / Math.max(1, tm.vmax - tm.vmin));
     }
@@ -1748,6 +1775,28 @@ function drawTrackMap() {
     ctx.moveTo(S[i - 1].x, S[i - 1].y);
     ctx.lineTo(S[i].x, S[i].y);
     ctx.stroke();
+  }
+
+  // tricks and checkpoints, as small markers on the line
+  const primaryNow = currentPrimary();
+  if (primaryNow) {
+    for (const it of collectTricks(primaryNow)) {
+      const i = nearestIndex(pts, it.at, (p) => p.distance_m);
+      const s = S[i];
+      ctx.beginPath(); ctx.arc(s.x, s.y, 8.5, 0, Math.PI * 2); ctx.fillStyle = "#0a0e17"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = it.color; ctx.stroke();
+      ctx.fillStyle = it.color; ctx.font = "700 10px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(it.glyph, s.x, s.y + 0.5);
+    }
+    for (const cp of (primaryNow.checkpoints || []).filter((r) => r.label !== "Finish")) {
+      const i = nearestIndex(pts, cp.dist_m, (p) => p.distance_m);
+      const s = S[i];
+      ctx.strokeStyle = cp.delta_ms > 20 ? LOSS : cp.delta_ms < -20 ? GAIN : "#b4bfd6";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x, s.y - 14); ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y - 14); ctx.lineTo(s.x + 9, s.y - 11); ctx.lineTo(s.x, s.y - 8); ctx.closePath(); ctx.fill();
+    }
   }
 
   // corner numbers, nudged away from the line
@@ -1760,27 +1809,27 @@ function drawTrackMap() {
     let nx = -(b.y - a.y), ny = b.x - a.x;
     const len = Math.hypot(nx, ny) || 1;
     nx = (nx / len) * 15; ny = (ny / len) * 15;
-    ctx.fillStyle = "rgba(240,237,230,0.8)";
+    ctx.fillStyle = "rgba(238,242,251,0.8)";
     ctx.fillText(String(c.corner_index), S[i].x + nx, S[i].y + ny);
   });
 
   // start / finish
-  ctx.fillStyle = "#f0ede6";
+  ctx.fillStyle = "#eef2fb";
   ctx.beginPath();
   ctx.arc(S[0].x, S[0].y, 5, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#f0ede6";
+  ctx.strokeStyle = "#eef2fb";
   ctx.lineWidth = 2;
   const f = S[S.length - 1];
   ctx.strokeRect(f.x - 5, f.y - 5, 10, 10);
 
   if (tm.hoverX != null) {
     const i = nearestIndex(pts, tm.hoverX, (p) => p.distance_m);
-    ctx.fillStyle = "#121211";
+    ctx.fillStyle = "#0a0e17";
     ctx.beginPath();
     ctx.arc(S[i].x, S[i].y, 9, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#f0ede6";
+    ctx.fillStyle = "#eef2fb";
     ctx.beginPath();
     ctx.arc(S[i].x, S[i].y, 6, 0, Math.PI * 2);
     ctx.fill();
@@ -1887,7 +1936,7 @@ function renderCorners(data) {
         ? `<i style="left:50%;width:${w}%;background:${LOSS}"></i>` : `<i style="left:${50 - w}%;width:${w}%;background:${GAIN}"></i>`;
       return `<tr>
         <td class="mono">${c.corner_index}</td>
-        <td><span class="dir ${c.direction}">${c.direction === "left" ? "left" : "right"} ${c.turn_deg}°</span></td>
+        <td><span class="dir ${c.direction}">${c.direction === "left" ? "left" : "right"} ${c.turn_deg}°</span>${groundChip(c, data[id])}</td>
         <td class="mono">${Math.round(c.distance_start)}–${Math.round(c.distance_end)} m</td>
         <td><span class="impact"><span class="impact-bar">${bar}</span><span class="mono ${c.time_change_ms > 0 ? "pos" : c.time_change_ms < 0 ? "neg" : ""}" style="font-family:var(--font-mono)">${c.time_change_ms > 0 ? "+" : c.time_change_ms < 0 ? "−" : ""}${Math.abs(c.time_change_ms)} ms</span></span></td>
         <td class="mono">${r0(c.subject_entry_speed)} / ${r0(c.subject_min_speed)} / ${r0(c.subject_exit_speed)} <span class="hint">vs</span> ${r0(c.reference_entry_speed)} / ${r0(c.reference_min_speed)} / ${r0(c.reference_exit_speed)}</td>
