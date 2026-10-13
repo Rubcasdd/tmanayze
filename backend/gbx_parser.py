@@ -55,6 +55,7 @@ class ParsedRun:
     player_nickname: str | None
     race_time_ms: int | None
     num_checkpoints: int | None
+    checkpoint_times: list = field(default_factory=list)  # ms from the start; the last is the finish
     samples: list[dict] = field(default_factory=list)
     telemetry_available: bool = False
 
@@ -158,17 +159,20 @@ def parse_gbx_bytes(data: bytes) -> ParsedRun:
         raise GbxParseError(f"could not read Gbx header: {e}") from e
 
     samples: list[dict] = []
+    checkpoints: list[int] = []
     if num_external == 0:
         body = _read_body(r, body_compression)
         if body:
             samples = _extract_vehicle_samples(body)
+            checkpoints = _checkpoint_times(body)
 
     return ParsedRun(
         map_uid=metadata.get("map_uid"),
         map_name=metadata.get("map_name"),
         player_nickname=metadata.get("player_nickname"),
-        race_time_ms=metadata.get("race_time_ms"),
+        race_time_ms=metadata.get("race_time_ms") if metadata.get("race_time_ms") is not None else (checkpoints[-1] if checkpoints else None),
         num_checkpoints=metadata.get("num_checkpoints"),
+        checkpoint_times=checkpoints,
         samples=samples,
         telemetry_available=bool(samples),
     )
@@ -362,6 +366,26 @@ def _find_vehicle_buffers(record: bytes, version: int) -> list[tuple[int, bytes]
         return best
     except (EOFError, ValueError, struct.error):
         return best
+
+
+_CP_CHUNK = struct.pack("<II", 0x0309200B, 0x534B4950)  # the ghost's checkpoint chunk and the marker of a skippable chunk
+
+
+def _checkpoint_times(body: bytes) -> list[int]:
+    """The checkpoint times the game stored with the ghost, in ms from the start, the finish last.
+    The chunk is [id][skip marker][size][count] then count pairs of (time, stunt score)."""
+    i = body.find(_CP_CHUNK)
+    while i >= 0:
+        try:
+            size, count = struct.unpack_from("<ii", body, i + 8)
+            if 0 < count <= 200 and size == 4 + count * 8:
+                times = [struct.unpack_from("<i", body, i + 16 + k * 8)[0] for k in range(count)]
+                if all(t > 0 for t in times) and all(b > a for a, b in zip(times, times[1:])):
+                    return times
+        except struct.error:
+            break
+        i = body.find(_CP_CHUNK, i + 1)
+    return []
 
 
 _POSITION = struct.Struct("<3f")

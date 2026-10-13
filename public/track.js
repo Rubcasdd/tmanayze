@@ -109,6 +109,7 @@ class TrackView {
       flights: { you: d.subject_flights || [], ghost: d.reference_flights || [] },
       driving: d.driving || null,
       moves: d.field_moves || [],
+      cps: (d.checkpoints || []).filter((r) => r.x !== null),
     };
     this.attachSurface();
     return this.data;
@@ -377,6 +378,7 @@ class TrackView {
     }
 
     if (this.opt.jumps) { this.drawJumps(); this.drawMoves(); }
+    this.drawCheckpoints();
 
     // direction arrows
     c.fillStyle = "rgba(240,237,230,0.55)";
@@ -765,6 +767,21 @@ class TrackView {
     this.renderPanel();
     if (this.dim === "2d") this.goTo({ cx: m.x, cz: m.z, scale: Math.min(this.W, this.H) / 180 });
     else this.goTo({ tx: m.x, ty: y * this.opt.yex, tz: m.z, yaw: this.cam.yaw, pitch: 0.5, dist: 130 });
+  }
+
+  // a flag at every checkpoint with the gap to the ghost there
+  drawCheckpoints() {
+    const c = this.ctx, cps = this.data.cps || [];
+    for (const r of cps) {
+      const s = this.P(r.x, r.y, r.z);
+      if (!s) continue;
+      const col = r.delta_ms > 20 ? "#ff6252" : r.delta_ms < -20 ? "#3dd68c" : "#f0ede6";
+      c.strokeStyle = col; c.lineWidth = 2.5;
+      c.beginPath(); c.moveTo(s[0], s[1]); c.lineTo(s[0], s[1] - 26); c.stroke();
+      c.fillStyle = col;
+      c.beginPath(); c.moveTo(s[0], s[1] - 26); c.lineTo(s[0] + 22, s[1] - 20); c.lineTo(s[0], s[1] - 14); c.closePath(); c.fill();
+      this.text(`${r.label}  ${r.delta_ms > 0 ? "+" : r.delta_ms < 0 ? "−" : ""}${(Math.abs(r.delta_ms) / 1000).toFixed(2)}s`, s[0] + 26, s[1] - 18, col, 11);
+    }
   }
 
   // flags for what the ghosts share, and your wall-rides picked out along the line

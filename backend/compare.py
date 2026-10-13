@@ -590,20 +590,26 @@ def _downsample(points: list[dict], target: int) -> list[dict]:
     return [points[int(i * step)] for i in range(target)]
 
 
-def _build_sections(raw_points, matches, ref_samples, corners) -> list[dict]:
-    """Equal-distance slices of the track. Each carries its own summary and
-    a full-resolution trace so a chart can show that stretch in detail."""
+def _build_sections(raw_points, matches, ref_samples, corners, bounds=None) -> list[dict]:
+    """Slices of the track: between the map's checkpoints when we know them (`bounds`: start, checkpoints,
+    finish, as distances along the player's run), otherwise equal-distance slices. Each carries its own
+    summary and a full-resolution trace so a chart can show that stretch in detail."""
     total = raw_points[-1]["distance_m"]
     if total <= 0:
         return []
-    count = max(3, min(8, round(total / SECTION_TARGET_M)))
     distances = [p["distance_m"] for p in raw_points]
+    if bounds and len(bounds) >= 3:
+        cuts = [(bounds[k]["dist_m"], bounds[k + 1]["dist_m"], f"{bounds[k]['label']} → {bounds[k + 1]['label']}") for k in range(len(bounds) - 1)]
+        kind = "checkpoint"
+    else:
+        count = max(3, min(8, round(total / SECTION_TARGET_M)))
+        cuts = [(total * k / count, total * (k + 1) / count, f"Section {k + 1}") for k in range(count)]
+        kind = "equal"
 
     sections = []
-    for k in range(count):
-        d0, d1 = total * k / count, total * (k + 1) / count
+    for k, (d0, d1, label) in enumerate(cuts):
         i0 = bisect_left(distances, d0)
-        i1 = min(len(raw_points) - 1, bisect_right(distances, d1) - 1 if k < count - 1 else len(raw_points) - 1)
+        i1 = min(len(raw_points) - 1, bisect_right(distances, d1) - 1 if k < len(cuts) - 1 else len(raw_points) - 1)
         if i1 <= i0:
             continue
         seg = raw_points[i0:i1 + 1]
@@ -612,6 +618,8 @@ def _build_sections(raw_points, matches, ref_samples, corners) -> list[dict]:
         rm = _steer_metrics([s["steer"] for s in ref_slice])
         sections.append({
             "index": len(sections) + 1,
+            "label": label,
+            "kind": kind,
             "distance_start": _r(seg[0]["distance_m"], 1),
             "distance_end": _r(seg[-1]["distance_m"], 1),
             "time_change_ms": round(seg[-1]["delta_ms"] - seg[0]["delta_ms"]),
@@ -699,9 +707,44 @@ def _alignment_quality(deviations: list[float], subject_length: float, reference
     }
 
 
-def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
-    subj_samples = subject.get("samples") or []
-    ref_samples = reference.get("samples") or []
+def _finish_ms(run: dict) -> int | None:
+    """The finish time the game recorded for a run (its last checkpoint), or its race time."""
+    cps = run.get("checkpoints")
+    if isinstance(cps, list) and cps and isinstance(cps[-1], int) and cps[-1] > 0:
+        return cps[-1]
+    rt = run.get("race_time_ms")
+    return rt if isinstance(rt, int) and rt > 0 else None
+
+
+def _trim_to_finish(samples: list[dict], finish_ms: int | None) -> list[dict]:
+    """A replay keeps recording after the car crosses the line. Cut the samples at the finish (adding one
+    interpolated sample exactly there) so the last metres of two runs line up and the final gap is the real one."""
+    if not samples or not finish_ms:
+        return samples
+    target = finish_ms  # sample times and the game's finish time are on the same clock, which starts with the race
+    last = samples[-1]["time_ms"]
+    if last < target - 5 and target - last <= 120 and len(samples) > 2:
+        # a ghost that stops a hair before the line: carry it on to the finish time along its last movement
+        a, b = samples[-2], samples[-1]
+        k = (target - b["time_ms"]) / max(1, b["time_ms"] - a["time_ms"])
+        end = {key: (b[key] + k * (b[key] - a[key]) if isinstance(b[key], (int, float)) and isinstance(a.get(key), (int, float)) and key not in ("gas", "brake", "steer") else b[key]) for key in b}
+        end["time_ms"] = target
+        return samples + [end]
+    if last <= target + 5 or target < 0.6 * last:
+        return samples
+    k = next((i for i, s in enumerate(samples) if s["time_ms"] > target), None)
+    if k is None or k == 0:
+        return samples
+    a, b = samples[k - 1], samples[k]
+    u = (target - a["time_ms"]) / max(1, b["time_ms"] - a["time_ms"])
+    cut = {key: (a[key] + u * (b[key] - a[key]) if isinstance(a[key], (int, float)) and isinstance(b.get(key), (int, float)) else a[key]) for key in a}
+    cut["time_ms"] = target
+    return samples[:k] + [cut] if u > 0.02 else samples[:k]
+
+
+def compare_runs(subject: dict, reference: dict, section_bounds: list[dict] | None = None) -> ComparisonResult:
+    subj_samples = _trim_to_finish(subject.get("samples") or [], _finish_ms(subject))
+    ref_samples = _trim_to_finish(reference.get("samples") or [], _finish_ms(reference))
 
     if not subj_samples or not ref_samples:
         # Without per-tick telemetry on both sides we can still compare by
@@ -754,7 +797,7 @@ def compare_runs(subject: dict, reference: dict) -> ComparisonResult:
         raw_points, matches, subj_samples, ref_samples, segments,
         subj_dist=subj_dist, ref_dist=ref_dist, subj_curv=subj_curv, ref_curv=ref_curv,
     )
-    sections = _build_sections(raw_points, matches, ref_samples, corners)
+    sections = _build_sections(raw_points, matches, ref_samples, corners, section_bounds)
     points = [_public_point(p) for p in _downsample(raw_points, DOWNSAMPLE_POINTS)]
     stats = _aggregate_stats(subj_samples, ref_samples, raw_points, corners, subject, reference)
     stats.update(_alignment_quality(deviations, subj_dist[-1], ref_dist[-1]))

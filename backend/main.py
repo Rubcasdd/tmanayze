@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import coach_knowledge, driving as driving_mod, shares, signals as signals_mod, techniques
+from . import checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -114,6 +114,7 @@ class Sample(BaseModel):
 
 class RunPayload(BaseModel):
     id: str = Field(max_length=64)
+    checkpoints: list[int] | None = Field(default=None, max_length=200)  # the game's checkpoint times, finish last
     map_uid: str | None = None
     map_name: str | None = None
     player_nickname: str | None = None
@@ -129,6 +130,7 @@ class RunPayload(BaseModel):
             "player_nickname": self.player_nickname,
             "race_time_ms": self.race_time_ms,
             "world_position": self.world_position,
+            "checkpoints": self.checkpoints,
             "samples": [s.model_dump() for s in self.samples],
         }
 
@@ -216,6 +218,7 @@ def _run_record(
         "source_filename": filename,
         "uploaded_at": time.time(),
         "telemetry_available": parsed.telemetry_available,
+        "checkpoints": parsed.checkpoint_times,
         "samples": parsed.samples,
     }
 
@@ -306,6 +309,11 @@ def compare(body: CompareRequest):
         subject_flights = signals_mod.public_flights(subject.get("samples") or [])
     except Exception:  # jumps are a bonus; never break the comparison over them
         subject_flights = []
+    try:  # the map's own checkpoints cut the track into sections, and give split times
+        cp_info = checkpoints_mod.subject_passes(subject.get("samples") or [], subject.get("checkpoints"))
+    except Exception:
+        cp_info = None
+    cp_bounds = checkpoints_mod.section_bounds(cp_info)
     try:
         subject_driving = driving_mod.analyze(subject.get("samples") or [])
     except Exception:  # landings, wall-rides and smoothness are extras too
@@ -314,11 +322,15 @@ def compare(body: CompareRequest):
     flights_by_ref: dict[str, list] = {}
     for ref in body.references:
         reference = ref.as_run()
-        result = compare_runs(subject, reference)
+        result = compare_runs(subject, reference, cp_bounds)
         try:
             reference_flights = signals_mod.public_flights(reference.get("samples") or [])
         except Exception:
             reference_flights = []
+        try:
+            cp_rows = checkpoints_mod.rows(cp_info, reference.get("checkpoints")) if cp_info else []
+        except Exception:
+            cp_rows = []
         try:
             ref_driving = driving_mod.analyze(reference.get("samples") or [])
         except Exception:
@@ -338,6 +350,7 @@ def compare(body: CompareRequest):
             "subject_flights": subject_flights,
             "reference_flights": reference_flights,
             "driving": {"subject": subject_driving, "reference": ref_driving},
+            "checkpoints": cp_rows,
         }
     try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
         moves = driving_mod.field_moves(points_by_ref, subject_flights, flights_by_ref)
@@ -400,7 +413,11 @@ def analyze(
         )
 
     subject, reference = body.subject.as_run(), body.reference.as_run()
-    result = compare_runs(subject, reference)
+    try:
+        cp_info = checkpoints_mod.subject_passes(subject.get("samples") or [], subject.get("checkpoints"))
+    except Exception:
+        cp_info = None
+    result = compare_runs(subject, reference, checkpoints_mod.section_bounds(cp_info))
     found = focus.find_focus(result.stats, result.corners, result.sections)
     map_uid = subject.get("map_uid") or reference.get("map_uid")
 
@@ -448,6 +465,11 @@ def analyze(
             figures_block = coach.figures_text(result.corners)
 
             signals_block, features, tech_findings = signals_mod.signals_text(samples, reference.get("samples") or [])
+            try:
+                if cp_info:
+                    signals_block += "\n" + checkpoints_mod.splits_text(checkpoints_mod.rows(cp_info, reference.get("checkpoints")))
+            except Exception:
+                pass
             try:
                 s_drive = driving_mod.analyze(samples)
                 g_drive = driving_mod.analyze(reference.get("samples") or [])

@@ -110,6 +110,10 @@ def _corner_candidate(c: dict) -> dict:
     }
 
 
+def _section_name(s: dict) -> str:
+    return s.get("label") if s.get("kind") == "checkpoint" else f"section {s['index']}"
+
+
 def _section_candidate(s: dict) -> dict:
     speed_gap = s["subject_avg_speed"] - s["reference_avg_speed"]
     margin = max(2.0, 0.015 * s["reference_avg_speed"])
@@ -136,8 +140,8 @@ def _section_candidate(s: dict) -> dict:
         "kind": "section",
         "index": s["index"],
         "tag": tag,
-        "where": f"the stretch between {s['distance_start']:.0f}–{s['distance_end']:.0f} m (section {s['index']})",
-        "title": f"{base} between {s['distance_start']:.0f}–{s['distance_end']:.0f} m (section {s['index']})",
+        "where": f"the stretch between {s['distance_start']:.0f}–{s['distance_end']:.0f} m ({_section_name(s)})",
+        "title": f"{base} between {s['distance_start']:.0f}–{s['distance_end']:.0f} m ({_section_name(s)})",
         "time_change_ms": s["time_change_ms"],
         "distance_start": s["distance_start"],
         "distance_end": s["distance_end"],

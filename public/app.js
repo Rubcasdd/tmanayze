@@ -369,7 +369,7 @@ async function addWorldRecord(wr, uid) {
 
 // ============================================================ challenge links
 
-const sharePayload = (r) => ({ id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname, race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, samples: r.samples || [] });
+const sharePayload = (r) => ({ id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname, race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, checkpoints: r.checkpoints || null, samples: r.samples || [] });
 
 async function createChallenge() {
   const ctx = shareContext();
@@ -1001,7 +1001,7 @@ async function maybeLoadComparison() {
     const byId = Object.fromEntries(runs.map((r) => [r.id, r]));
     const strip = (r) => ({
       id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname,
-      race_time_ms: r.race_time_ms, samples: r.samples || [],
+      race_time_ms: r.race_time_ms, checkpoints: r.checkpoints || null, samples: r.samples || [],
     });
     const subject = byId[state.subjectId];
     const refs = ids.map((id) => byId[id]).filter(Boolean);
@@ -1052,6 +1052,7 @@ function renderComparison() {
 
   renderStats(data, ids);
   renderFocus(primary);
+  renderCheckpoints(primary);
   renderMoves(primary);
   const chartable = ids.filter((id) => data[id].stats.telemetry);
   $("#chart-empty-note").hidden = chartable.length > 0;
@@ -1158,6 +1159,34 @@ const MOVE_KINDS = {
 };
 
 // What the top ghosts share that you don't, how your landings went, and your wall-rides.
+// The game's checkpoint times, you against the ghost: the gap at each checkpoint and over each stretch.
+function renderCheckpoints(primary) {
+  const area = $("#cp-area"), body = $("#cp-body");
+  const rows = (primary && primary.checkpoints) || [];
+  const mine = state.runs.find((r) => r.id === state.subjectId), theirs = state.runs.find((r) => r.id === state.primaryRefId);
+  const missing = primary && primary.stats.telemetry && !rows.length && ((mine && !mine.checkpoints) || (theirs && !theirs.checkpoints));
+  area.hidden = !rows.length && !missing;
+  if (!rows.length) {
+    if (missing) body.innerHTML = `<div class="hint">One of these runs was saved before checkpoint times were kept, so there's no split table. Add it again (re-import the replay or ghost) to get one.</div>`;
+    return;
+  }
+  const t = (ms) => fmtTime(ms);
+  const worst = Math.max(1, ...rows.map((r) => Math.abs(r.split_delta_ms)));
+  const cell = (ms) => `<td class="${ms > 0 ? "loss" : ms < 0 ? "gain" : ""}">${fmtGap(ms)}</td>`;
+  body.innerHTML = `<table class="cp-table"><thead><tr><th></th><th>You</th><th>Ghost</th><th>Gap</th><th>This stretch</th><th>Stretch gap</th></tr></thead><tbody>${rows.map((r, i) => `
+    <tr data-i="${i}"><td><b>${esc(r.label)}</b></td><td>${t(r.subject_ms)}</td><td>${t(r.reference_ms)}</td>${cell(r.delta_ms)}
+      <td>${t(r.split_subject_ms)} <small>vs ${t(r.split_reference_ms)}</small></td>
+      <td class="${r.split_delta_ms > 0 ? "loss" : r.split_delta_ms < 0 ? "gain" : ""}">${fmtGap(r.split_delta_ms)}<span class="cp-bar ${r.split_delta_ms > 0 ? "loss" : "gain"}" style="width:${Math.round((Math.abs(r.split_delta_ms) / worst) * 80)}px"></span></td></tr>`).join("")}</tbody></table>`;
+  $$("tr[data-i]", body).forEach((tr) =>
+    tr.addEventListener("click", () => {
+      const i = +tr.dataset.i, r = rows[i], from = i === 0 ? 0 : rows[i - 1].dist_m, to = r.dist_m;
+      const same = state.highlight && state.highlight.from === from && state.highlight.to === to;
+      setHighlight(same ? null : { from, to, title: `${i === 0 ? "Start" : rows[i - 1].label} → ${r.label}`, section: null });
+      if (!same) $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+    })
+  );
+}
+
 // the data a share card needs
 function shareContext() {
   const d = state.compare && state.compare.data[state.primaryRefId];
@@ -1769,7 +1798,7 @@ function renderSections(data, ids) {
   $("#section-nav").innerHTML = primary.sections
     .map((s) => {
       const cls = s.time_change_ms > 0 ? "loss" : s.time_change_ms < 0 ? "gain" : "";
-      return `<button type="button" class="section-chip" data-go="${s.index}"><span>Section ${s.index}</span><span class="t ${cls}">${fmtGap(s.time_change_ms)}</span></button>`;
+      return `<button type="button" class="section-chip" data-go="${s.index}"><span>${esc(s.label || `Section ${s.index}`)}</span><span class="t ${cls}">${fmtGap(s.time_change_ms)}</span></button>`;
     })
     .join("");
   $$(".section-chip").forEach((b) => b.addEventListener("click", () => gotoSection(b.dataset.go)));
@@ -1782,7 +1811,7 @@ function renderSections(data, ids) {
     card.dataset.index = sec.index;
     card.innerHTML = `
       <div class="section-head">
-        <span class="section-title-sm">Section ${sec.index}</span>
+        <span class="section-title-sm">${esc(sec.label || `Section ${sec.index}`)}</span>
         <span class="section-range">${Math.round(sec.distance_start)}–${Math.round(sec.distance_end)} m${sec.corner_indices.length ? ` · corners ${sec.corner_indices.join(", ")}` : " · no corners"}</span>
         <span class="badge ${badgeClass}">${gain ? "gain " : sec.time_change_ms === 0 ? "even " : "lose "}${Math.abs(sec.time_change_ms / 1000).toFixed(2)}s</span>
       </div>
@@ -1823,7 +1852,7 @@ function renderSections(data, ids) {
     state.charts.push(mkSpeed(speedCanvas, {}), mkSteer(steerCanvas, {}));
     $$("[data-expand]", card).forEach((btn) =>
       btn.addEventListener("click", () =>
-        openExpand(`Section ${sec.index}: ${btn.dataset.expand === "speed" ? "speed" : "steering"}`, btn.dataset.expand === "speed" ? mkSpeed : mkSteer)
+        openExpand(`${sec.label || `Section ${sec.index}`}: ${btn.dataset.expand === "speed" ? "speed" : "steering"}`, btn.dataset.expand === "speed" ? mkSpeed : mkSteer)
       )
     );
   });
@@ -2215,7 +2244,7 @@ async function handleAnalyze() {
     const previous = await Store.getMemory(key);
     const strip = (r) => ({
       id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname,
-      race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, samples: r.samples || [],
+      race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, checkpoints: r.checkpoints || null, samples: r.samples || [],
     });
     const data = await postJson("/api/analyze", {
       subject: strip(subject), reference: strip(reference),

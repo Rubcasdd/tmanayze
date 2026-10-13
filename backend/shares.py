@@ -100,7 +100,7 @@ def _thin(run: dict, stride: int = 1) -> dict:
     samples = run.get("samples") or []
     step = max(stride, -(-len(samples) // MAX_SAMPLES))
     slim = [{k: s[k] for k in _KEYS if s.get(k) is not None} for s in samples[::step]]
-    return {k: run.get(k) for k in ("id", "map_uid", "map_name", "player_nickname", "race_time_ms", "world_position")} | {"samples": slim}
+    return {k: run.get(k) for k in ("id", "map_uid", "map_name", "player_nickname", "race_time_ms", "world_position", "checkpoints")} | {"samples": slim}
 
 
 def pack(subject: dict, reference: dict, note: str | None) -> str:

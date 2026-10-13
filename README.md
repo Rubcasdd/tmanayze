@@ -33,6 +33,11 @@ coach that works from those measurements.
   line against the ghost's, the brake / turn-in / apex / exit points, distance ticks, the surface
   and the input timeline. Each figure has a Save PNG button, and the coach's note shows up in the
   Track tab next to that corner.
+- **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
+  the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
+  between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording
+  after the finish line, so runs are now cut at the finish, which also corrects the final gap and the last section.
+  Runs saved before the parser kept these times show equal-distance sections: re-import them.
 - **Tricks, jumps and landings:** from the car's recorded orientation the app scores every landing (nose angle against
   the slope, sideways tilt, speed lost, flips in the air) and finds wall-rides and upside-down stretches. With several
   ghosts selected it also shows what most of them do that you don't: a different line that gains time, a jump line, an
@@ -189,6 +194,7 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
 - `backend/mapblocks.py`, `surface.py` — read the map's blocks (own Gbx map parser, no keys) and
   turn them into a surface label for every point of the lap. It is an estimate: the labels come from
   the nearest blocks, so custom or very unusual blocks may show as "unknown".
+- `backend/checkpoints.py` — splits and checkpoint-based sections from the times stored in the replay.
 - `backend/driving.py` — landings, wall-rides, input smoothness and what the top ghosts share. `shares.py` — the 30-day store
   behind challenge links. `public/share.js` — the share-card images.
 - `backend/inputs.py` — the steering / brake / lift runs through each corner.
