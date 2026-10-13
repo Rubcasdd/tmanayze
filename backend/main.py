@@ -298,6 +298,16 @@ def surface_for_points(body: SurfaceRequest):
     }
 
 
+def _ground_labels(run: dict) -> list[str] | None:
+    """The ground under each sample of a run (from the map's blocks), or None when it can't be had."""
+    try:
+        if not run.get("map_uid") or not run.get("samples"):
+            return None
+        return surface_mod.surfaces_for_samples(run["map_uid"], run["samples"])
+    except Exception:
+        return None
+
+
 @app.post("/api/compare")
 def compare(body: CompareRequest):
     """One subject run against several references. Every comparison reuses
@@ -320,7 +330,7 @@ def compare(body: CompareRequest):
         subject_driving = None
     try:  # which driving skills the run uses, found once and compared with each reference below
         subject_samples = subject.get("samples") or []
-        subject_skills = skills_mod.detect(subject_samples)
+        subject_skills = skills_mod.detect(subject_samples, _ground_labels(subject))
         subject_dist = signals_mod._cumulative_distance(subject_samples) if len(subject_samples) >= 20 else []
     except Exception:
         subject_skills = None
@@ -342,7 +352,7 @@ def compare(body: CompareRequest):
         except Exception:
             ref_driving = None
         try:
-            skills_report = skills_mod.compare(subject_skills, skills_mod.detect(reference.get("samples") or []), subject_samples, subject_dist) if subject_skills else None
+            skills_report = skills_mod.compare(subject_skills, skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), subject_samples, subject_dist) if subject_skills else None
         except Exception:
             skills_report = None
         points_by_ref[ref.id] = result.points
@@ -492,7 +502,7 @@ def analyze(
                 pass
             try:
                 found_skills = skills_mod.skills_text(skills_mod.compare(
-                    skills_mod.detect(samples), skills_mod.detect(reference.get("samples") or []), samples, dist))
+                    skills_mod.detect(samples, labels), skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), samples, dist))
                 if found_skills:
                     signals_block += "\n" + found_skills
             except Exception:

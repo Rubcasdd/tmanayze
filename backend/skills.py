@@ -30,6 +30,21 @@ CATALOGUE: list[dict] = [
     {"id": "slide", "name": "Slide", "glyph": "↯", "group": "Cornering", "more_is": "neutral",
      "what": "The car travels sideways (more than 10° between where it points and where it goes) for at least 0.3 s without a brake tap: a steer-started or low-speed slide, or the natural slide on ice and dirt.",
      "try": "A long, deep slide scrubs speed on grip and is normal on ice. Compare how much speed each run keeps through the same slide."},
+    {"id": "ice_slide", "name": "Ice slide", "glyph": "❄", "group": "Cornering", "more_is": "neutral",
+     "what": "A slide on ice. There is almost no grip, so the car keeps its heading and speed while it rotates; the skill is choosing the angle and the exit, and steering early and gently.",
+     "try": "Set the angle before the ice starts, keep the wheel small and steady, and don't brake: braking on ice does very little."},
+    {"id": "bugslide", "name": "Bug slide", "glyph": "⊥", "group": "Cornering", "more_is": "neutral",
+     "what": "Sliding through a corner with the car turned about sideways to its path (60-120°), held there for at least 0.3 s. Done into hairpins to lose as little speed as possible.",
+     "try": "Throw the car sideways early, hold the angle with the wheel, and straighten when the exit opens up. Advanced: a sloppy one scrubs more speed than a normal turn."},
+    {"id": "backslide", "name": "Back slide", "glyph": "⇆", "group": "Cornering", "more_is": "neutral",
+     "what": "The car travels tail-first: its nose points more than 120° away from where it is going, held for at least 0.3 s. Common on ice and in deep slides.",
+     "try": "Keep the throttle and wheel steady and bring the nose back round before the exit; the deeper the angle, the more you must hold it."},
+    {"id": "nose_slide", "name": "Nose slide", "glyph": "◢", "group": "Cornering", "more_is": "neutral",
+     "what": "The car rides on its front end: its nose points at least 25° lower than the ground it is travelling over, without being in the air. Inferred from the car's pitch against its path.",
+     "try": "It is deliberate only on nosebug-style tricks. Otherwise it usually means a landing or a bump pushed the nose down: brake gently to level the car."},
+    {"id": "quantum_slide", "name": "Quantum slide", "glyph": "∿", "group": "Cornering", "more_is": "neutral",
+     "what": "Turning hard on dirt or grass at speed without actually sliding: the no-slide speedslide. Inferred from the replay: a held steering input and a real change of heading with the car pointing where it goes.",
+     "try": "A hard, brief steering input and the right gear timing keep the wheels from breaking away on loose ground. Listen for the gear changes."},
     {"id": "airbrake", "name": "Air-brake", "glyph": "⇩", "group": "In the air", "more_is": "more",
      "what": "Braking while airborne. It stops the car rotating so it lands flat on all four wheels, which cushions the landing.",
      "try": "Tap the brake in the air when the car would otherwise land nose-first, tail-first or on one side."},
@@ -83,9 +98,17 @@ BOOST_GAIN_KMH = 28.0
 BOOST_WINDOW_S = 0.3
 BIG_JUMP_S, BIG_JUMP_M = 0.45, 25.0
 PAIR_RADIUS_M = 45.0
+BUG_MIN_DEG, BACK_MIN_DEG = 60.0, 120.0
+NOSE_MIN_DEG, NOSE_MIN_S = 25.0, 0.25
+QUANTUM_MIN_KMH, QUANTUM_MIN_STEER, QUANTUM_MIN_S = 150.0, 0.4, 0.5
+QUANTUM_MAX_SLIP, QUANTUM_MIN_TURN = 8.0, 15.0
+LOOSE_GROUND = {"dirt", "grass"}
+
+# Skills that need to know the ground under the car: without it in either run they can't be compared.
+NEEDS_GROUND = {"ice_slide", "quantum_slide"}
 
 # Skills that need the car's orientation: with it missing in either run they can't be compared.
-NEEDS_ORIENTATION = {"speed_drift", "slide", "clean_landing", "rough_landing", "flip", "wallride", "upside_down"}
+NEEDS_ORIENTATION = {"speed_drift", "slide", "ice_slide", "bugslide", "backslide", "nose_slide", "quantum_slide", "clean_landing", "rough_landing", "flip", "wallride", "upside_down"}
 
 
 def _slip_angles(samples: list[dict]) -> list[float]:
@@ -141,9 +164,25 @@ def _near_air(air: list[bool], i: int, pad: int) -> bool:
 
 # ------------------------------------------------------------------ detection
 
-def _slides(samples, dist, air, slip) -> list[dict]:
-    """Stretches where the car goes sideways, split at a change of direction, labelled a speed drift
-    when a brake tap started them at speed."""
+def _ground_of(labels: list[str] | None, a: int, b: int) -> str | None:
+    """The most common ground label between samples a and b (None when the ground isn't known)."""
+    if not labels:
+        return None
+    seg = [l for l in labels[a:b + 1] if l != "unknown"] or labels[a:b + 1]
+    return max(set(seg), key=seg.count) if seg else None
+
+
+def _deep_part(slip, lo, hi, floor, ceiling=None) -> tuple[int, int] | None:
+    """The longest stretch of a slide whose angle is at least `floor` (and below `ceiling`), or None."""
+    flags = [abs(slip[k]) >= floor and (ceiling is None or abs(slip[k]) < ceiling) for k in range(lo, hi + 1)]
+    best = max(signals._runs(flags, 2, gap=1), key=lambda r: r[1] - r[0], default=None)
+    return None if best is None else (lo + best[0], lo + best[1])
+
+
+def _slides(samples, dist, air, slip, labels=None) -> list[dict]:
+    """Stretches where the car goes sideways, split at a change of direction. Each is a speed drift when a
+    brake tap started it at speed, an ice slide when it is on ice, otherwise a plain slide; its deepest part
+    also counts as a back slide (over 120 degrees) or, failing that, a bug slide (60-120 degrees)."""
     n = len(samples)
     flags = [
         (not _near_air(air, i, 2)) and samples[i]["uy"] > 0.6 and samples[i]["speed"] >= SLIDE_MIN_KMH and abs(slip[i]) >= SLIDE_MIN_DEG
@@ -167,15 +206,83 @@ def _slides(samples, dist, air, slip) -> list[dict]:
             drift = braked and samples[lo]["speed"] >= DRIFT_MIN_KMH
             peak = max(abs(slip[k]) for k in range(lo, hi + 1))
             entry, exit_ = samples[lo]["speed"], samples[hi]["speed"]
-            skill = "speed_drift" if drift else "slide"
+            ground = _ground_of(labels, lo, hi)
+            skill = "ice_slide" if ground == "ice" else ("speed_drift" if drift else "slide")
             direction = "right" if slip[lo + (hi - lo) // 2] < 0 else "left"
-            kept = exit_ - entry
             how = "started with a brake tap" if drift else "no brake tap"
             out.append(_event(
-                skill, samples, dist, lo, hi, peak_deg=round(peak, 0), direction=direction,
+                skill, samples, dist, lo, hi, peak_deg=round(peak, 0), direction=direction, surface=ground,
                 info=f"{seconds:.1f} s {direction}, up to {peak:.0f}°, {entry:.0f} → {exit_:.0f} km/h, {how}",
                 score=seconds,
             ))
+            kind, deep = "backslide", (_deep_part(slip, lo, hi, BACK_MIN_DEG) if peak >= BACK_MIN_DEG else None)
+            if deep is None and peak >= BUG_MIN_DEG:
+                kind, deep = "bugslide", _deep_part(slip, lo, hi, BUG_MIN_DEG, BACK_MIN_DEG)
+            if deep is None:
+                continue
+            da, db = deep
+            dsec = (samples[db]["time_ms"] - samples[da]["time_ms"]) / 1000.0 + 0.05
+            if dsec < SLIDE_MIN_S:
+                continue
+            floor = BACK_MIN_DEG if kind == "backslide" else BUG_MIN_DEG
+            out.append(_event(
+                kind, samples, dist, da, db, peak_deg=round(peak, 0), direction=direction, surface=ground,
+                info=f"{dsec:.1f} s past {floor:.0f}° ({direction}, up to {peak:.0f}°), {samples[da]['speed']:.0f} → {samples[db]['speed']:.0f} km/h",
+                score=dsec,
+            ))
+    return out
+
+
+def _nose_slides(samples, dist, air) -> list[dict]:
+    """Riding on the front end: the nose points well below the slope the car is moving along, without being airborne."""
+    n = len(samples)
+    flags = [False] * n
+    drop = [0.0] * n
+    for i in range(2, n - 2):
+        if _near_air(air, i, 3) or samples[i]["speed"] < 60:
+            continue
+        a, b = samples[i - 2], samples[i + 2]
+        run = math.hypot(b["x"] - a["x"], b["z"] - a["z"])
+        if run < 0.5:
+            continue
+        slope = math.degrees(math.atan2(b["y"] - a["y"], run))
+        pitch = math.degrees(math.asin(max(-1.0, min(1.0, samples[i]["fy"]))))
+        drop[i] = slope - pitch
+        flags[i] = drop[i] >= NOSE_MIN_DEG
+    out = []
+    for a, b in signals._runs(flags, int(NOSE_MIN_S / 0.05), gap=1):
+        seconds = (samples[b]["time_ms"] - samples[a]["time_ms"]) / 1000.0 + 0.05
+        worst = max(drop[a:b + 1])
+        out.append(_event("nose_slide", samples, dist, a, b, nose_down_deg=round(worst, 0),
+                          info=f"{seconds:.1f} s on the nose, up to {worst:.0f}° below the slope, {samples[a]['speed']:.0f} → {samples[b]['speed']:.0f} km/h",
+                          score=seconds))
+    return out
+
+
+def _heading_deg(s: dict) -> float:
+    return math.degrees(math.atan2(s["fx"], s["fz"]))
+
+
+def _quantum_slides(samples, dist, air, slip, labels) -> list[dict]:
+    """Turning hard on dirt or grass at speed while the car stays pointed where it goes: no slide, a real change of heading."""
+    if not labels:
+        return []
+    n = len(samples)
+    flags = [
+        (not _near_air(air, i, 2)) and labels[i] in LOOSE_GROUND and samples[i]["uy"] > 0.6 and samples[i]["speed"] >= QUANTUM_MIN_KMH
+        and abs(samples[i]["steer"]) >= QUANTUM_MIN_STEER and abs(slip[i]) < QUANTUM_MAX_SLIP
+        for i in range(n)
+    ]
+    out = []
+    for a, b in signals._runs(flags, int(QUANTUM_MIN_S / 0.05), gap=1):
+        seconds = (samples[b]["time_ms"] - samples[a]["time_ms"]) / 1000.0 + 0.05
+        turn = abs((_heading_deg(samples[b]) - _heading_deg(samples[a]) + 180.0) % 360.0 - 180.0)
+        if turn < QUANTUM_MIN_TURN:
+            continue
+        ground = _ground_of(labels, a, b)
+        out.append(_event("quantum_slide", samples, dist, a, b, turn_deg=round(turn, 0), surface=ground,
+                          info=f"{seconds:.1f} s on {ground}, turned {turn:.0f}° at {samples[a]['speed']:.0f} → {samples[b]['speed']:.0f} km/h without sliding",
+                          score=seconds))
     return out
 
 
@@ -261,10 +368,13 @@ def _impacts_and_boosts(samples, dist, air) -> list[dict]:
     return out
 
 
-def detect(samples: list[dict]) -> dict:
-    """Every skill found in one run: {"events": [...], "metrics": {...}, "oriented": bool}."""
+def detect(samples: list[dict], labels: list[str] | None = None) -> dict:
+    """Every skill found in one run: {"events": [...], "metrics": {...}, "oriented": bool, "ground": bool}.
+    `labels` is the ground under each sample (surface.py), when the map's blocks could be read."""
     if len(samples) < 40:
-        return {"oriented": False, "events": [], "metrics": None}
+        return {"oriented": False, "ground": False, "events": [], "metrics": None}
+    if labels is not None and len(labels) != len(samples):
+        labels = None
     dist = signals._cumulative_distance(samples)
     fl = signals.flights(samples, dist)
     air = signals._in_flight(len(samples), fl)
@@ -272,7 +382,9 @@ def detect(samples: list[dict]) -> dict:
     events: list[dict] = []
     if oriented:
         slip = _slip_angles(samples)
-        events += _slides(samples, dist, air, slip)
+        events += _slides(samples, dist, air, slip, labels)
+        events += _nose_slides(samples, dist, air)
+        events += _quantum_slides(samples, dist, air, slip, labels)
         lands = driving.landings(samples, dist, fl)
         events += _from_flights(samples, dist, fl, lands)
         events += _surfaces(samples, dist, air)
@@ -289,10 +401,10 @@ def detect(samples: list[dict]) -> dict:
         "full_throttle_pct": round(100.0 * sum(1 for s in samples if s["gas"] > 0.9 and s["brake"] <= signals.BRAKE_ON) / n, 0),
         "brake_pct": round(100.0 * sum(1 for s in samples if s["brake"] > signals.BRAKE_ON) / n, 1),
         "drift_window_pct": round(100.0 * sum(1 for s in samples if s["speed"] >= 180) / n, 0),
-        "sliding_pct": round(100.0 * sum(e["duration_s"] for e in events if e["skill"] in ("slide", "speed_drift")) / total, 0),
+        "sliding_pct": round(100.0 * sum(e["duration_s"] for e in events if e["skill"] in ("slide", "speed_drift", "ice_slide")) / total, 0),
         "air_pct": round(100.0 * sum(1 for a in air if a) / n, 1),
     }
-    return {"oriented": oriented, "events": events, "metrics": metrics}
+    return {"oriented": oriented, "ground": bool(labels), "events": events, "metrics": metrics}
 
 
 # ------------------------------------------------------------------ comparing two runs
@@ -342,10 +454,11 @@ def compare(subject: dict, reference: dict, subject_samples: list[dict], subject
     if subject_dist is None:
         subject_dist = signals._cumulative_distance(subject_samples) if len(subject_samples) >= 20 else []
     both_oriented = subject["oriented"] and reference["oriented"]
+    both_ground = subject.get("ground", False) and reference.get("ground", False)
     rows = []
     for skill in CATALOGUE:
         sid = skill["id"]
-        if sid in NEEDS_ORIENTATION and not both_oriented:
+        if (sid in NEEDS_ORIENTATION and not both_oriented) or (sid in NEEDS_GROUND and not both_ground):
             rows.append({"id": sid, "you": 0, "ghost": 0, "you_s": 0, "ghost_s": 0, "both": 0, "you_only": 0, "ghost_only": 0, "status": "unknown", "events": []})
             continue
         mine = [e for e in subject["events"] if e["skill"] == sid]
@@ -372,7 +485,7 @@ def compare(subject: dict, reference: dict, subject_samples: list[dict], subject
         })
     return {
         "catalogue": CATALOGUE, "not_visible": NOT_VISIBLE, "rows": rows,
-        "oriented": both_oriented,
+        "oriented": both_oriented, "ground": both_ground,
         "metrics": {"you": subject["metrics"], "ghost": reference["metrics"]},
     }
 

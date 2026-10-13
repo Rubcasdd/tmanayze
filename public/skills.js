@@ -85,7 +85,8 @@ function renderSkills(primary) {
   $("#skills-hint").textContent = used.length
     ? `${used.length} skill${used.length === 1 ? "" : "s"} found${gaps ? `, ${gaps} where the ghost does something you don't, or you give time away` : ""}. Select one to see where, and to see it on the graphs.`
     : "Neither run shows any of the skills this page looks for.";
-  const note = rep.oriented ? "" : `<div class="notice">One of these runs has no record of the car's orientation, so slides, landings and wall-rides can't be found in it.</div>`;
+  const groundNote = rep.ground ? "" : `<div class="notice">The ground under the car isn't known for this map, so ice slides and quantum slides can't be told apart from other slides.</div>`;
+  const note = groundNote + (rep.oriented ? "" : `<div class="notice">One of these runs has no record of the car's orientation, so slides, landings and wall-rides can't be found in it.</div>`);
   $("#skills-body").innerHTML = `${note}${skillMetrics(rep.metrics)}
     <div class="sk-grid">${used.map((r) => skillCard(r, defs[r.id])).join("")}</div>
     <div class="sk-unused">
