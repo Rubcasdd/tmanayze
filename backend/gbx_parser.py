@@ -309,6 +309,39 @@ def _read_encoded_deltas(r: _Reader) -> list[tuple[int, bytes]] | None:
     return [(times[i], bytes(buffers[i])) for i in range(count)]
 
 
+def _walk_entities_v11(r: _Reader) -> list[tuple[int, bytes]]:
+    """Version >= 11 entity list. Entities follow each other directly: after
+    an entity's samples comes a "has next" byte, a secondary list ended by a
+    zero byte, and then (if has-next was 1) the next entity header with no
+    leading flag. Ghosts that were recorded with other cars/entities in the
+    scene (e.g. leaderboard ghosts of some maps) list those *before* the
+    vehicle, and also carry short 116-byte tracks of nearby cars, so the
+    vehicle is taken to be the entity with the most samples among those whose
+    buffers are at least 107 bytes long."""
+    best: list[tuple[int, bytes]] = []
+    try:
+        if r.u8() != 1:
+            return best
+        while True:
+            for _ in range(5):  # entity type/index + four unknowns
+                r.i32()
+            samples = _read_encoded_deltas(r)
+            if samples is None:
+                return best
+            has_next = r.u8()
+            while r.u8() == 1:  # secondary sample list, not needed
+                r.i32()
+                r.i32()
+                r.take(r.u32())
+            if (samples and len(samples[0][1]) >= _VEHICLE_SAMPLE_MIN_SIZE
+                    and len(samples) > len(best)):
+                best = samples
+            if has_next != 1:
+                return best
+    except (EOFError, ValueError, struct.error):
+        return best
+
+
 def _find_vehicle_buffers(record: bytes, version: int) -> list[tuple[int, bytes]]:
     """Walk the record's entity list and return the (time_ms, buffer) samples
     of the vehicle — the entity whose sample buffers are at least 107 bytes."""
@@ -337,19 +370,17 @@ def _find_vehicle_buffers(record: bytes, version: int) -> list[tuple[int, bytes]
             r.i32()
             r.u32()
 
+        if version >= 11:
+            return _walk_entities_v11(r)
+
         while r.u8() == 1:
             for _ in range(5):  # entity type/index + four unknowns
                 r.i32()
 
-            if version >= 11:
-                samples = _read_encoded_deltas(r)
-                if samples is None:
-                    return best
-            else:
-                samples = []
-                while r.u8() == 1:
-                    time_ms = r.i32()
-                    samples.append((time_ms, r.take(r.u32())))
+            samples = []
+            while r.u8() == 1:
+                time_ms = r.i32()
+                samples.append((time_ms, r.take(r.u32())))
 
             r.u8()  # "has next" flag
             while r.u8() == 1:  # secondary sample list, not needed
