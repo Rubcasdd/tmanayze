@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, techniques
+from . import checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, skills as skills_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -298,6 +298,16 @@ def surface_for_points(body: SurfaceRequest):
     }
 
 
+def _ground_labels(run: dict) -> list[str] | None:
+    """The ground under each sample of a run (from the map's blocks), or None when it can't be had."""
+    try:
+        if not run.get("map_uid") or not run.get("samples"):
+            return None
+        return surface_mod.surfaces_for_samples(run["map_uid"], run["samples"])
+    except Exception:
+        return None
+
+
 @app.post("/api/compare")
 def compare(body: CompareRequest):
     """One subject run against several references. Every comparison reuses
@@ -318,6 +328,12 @@ def compare(body: CompareRequest):
         subject_driving = driving_mod.analyze(subject.get("samples") or [])
     except Exception:  # landings, wall-rides and smoothness are extras too
         subject_driving = None
+    try:  # which driving skills the run uses, found once and compared with each reference below
+        subject_samples = subject.get("samples") or []
+        subject_skills = skills_mod.detect(subject_samples, _ground_labels(subject))
+        subject_dist = signals_mod._cumulative_distance(subject_samples) if len(subject_samples) >= 20 else []
+    except Exception:
+        subject_skills = None
     points_by_ref: dict[str, list] = {}
     flights_by_ref: dict[str, list] = {}
     for ref in body.references:
@@ -335,6 +351,10 @@ def compare(body: CompareRequest):
             ref_driving = driving_mod.analyze(reference.get("samples") or [])
         except Exception:
             ref_driving = None
+        try:
+            skills_report = skills_mod.compare(subject_skills, skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), subject_samples, subject_dist) if subject_skills else None
+        except Exception:
+            skills_report = None
         points_by_ref[ref.id] = result.points
         flights_by_ref[ref.id] = reference_flights
         found = focus.find_focus(result.stats, result.corners, result.sections)
@@ -350,6 +370,7 @@ def compare(body: CompareRequest):
             "subject_flights": subject_flights,
             "reference_flights": reference_flights,
             "driving": {"subject": subject_driving, "reference": ref_driving},
+            "skills": skills_report,
             "checkpoints": cp_rows,
         }
     try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
@@ -477,6 +498,13 @@ def analyze(
                 if extra:
                     signals_block += "\n" + extra
                 tech_findings = tech_findings + driving_mod.landing_findings(s_drive, g_drive)
+            except Exception:
+                pass
+            try:
+                found_skills = skills_mod.skills_text(skills_mod.compare(
+                    skills_mod.detect(samples, labels), skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), samples, dist))
+                if found_skills:
+                    signals_block += "\n" + found_skills
             except Exception:
                 pass
             tech_findings = signals_mod.filter_by_surface(tech_findings, labels, dist)
