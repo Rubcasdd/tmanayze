@@ -925,3 +925,13 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 
 .rp-cutsrow { display: block; margin-bottom: 8px; }
 .rp-cutsrow small { color: var(--muted); }
+
+/* 3D replay: the air list */
+.rp-airlist { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+.rp-jump { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(10, 14, 23, 0.55); font-size: 13px; }
+.rp-jump small { display: block; color: var(--muted); font-size: 12px; }
+.rp-jump small.gain { color: var(--gain); }
+.rp-jump small.loss { color: var(--loss); }
+.rp-jump .btn { white-space: nowrap; padding: 4px 8px; font-size: 12px; }
+
+.rp-jump .mono { display: block; }
