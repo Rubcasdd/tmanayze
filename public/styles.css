@@ -796,3 +796,52 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .pz-where em { display: block; color: var(--muted); font-style: normal; font-size: 12px; font-weight: 400; }
 
 .trick-group { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: auto; }
+
+
+/* cockpit */
+.ck { display: flex; flex-direction: column; gap: 14px; }
+.ck-transport { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ck-play { min-width: 44px; font-size: 16px; }
+.ck-clock { font-size: 20px; min-width: 84px; }
+.ck-speed { background: var(--surface-2); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 8px; font: inherit; }
+.ck-stripwrap { position: relative; background: linear-gradient(180deg, #111827, #0d1422); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 0 0; }
+.ck-strip { display: block; width: 100%; height: 96px; cursor: ew-resize; touch-action: none; }
+.ck-striphint { display: block; text-align: right; padding: 0 10px 4px; font-size: 11px; color: var(--muted); }
+.ck-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 260px) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.ck-card { background: linear-gradient(160deg, #141d33, #0f1626); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 12px 6px; }
+.ck-you { border-top: 3px solid var(--you); }
+.ck-ghost { border-top: 3px solid #5b8def; }
+.ck-card h3 { margin: 0 0 2px; font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-2); }
+.ck-dash { display: block; width: 100%; height: 210px; }
+.ck-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: radial-gradient(circle at 50% 0%, #1b2744, #0d1422 70%); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+.ck-gap { font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; transition: color 0.15s; }
+.ck-gaplabel { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.ck-map { width: 100%; height: 150px; display: block; }
+.ck-tapewrap { background: linear-gradient(180deg, #111827, #0d1422); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 8px 4px; }
+.ck-tape { display: block; width: 100%; height: 250px; }
+.ck-tapekey { display: flex; gap: 16px; padding: 4px 6px 2px; font-size: 12px; color: var(--ink-2); }
+.ck-tapekey i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.ck-lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.ck-moments, .ck-dna { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.ck-moments h3, .ck-dna h3 { margin: 0 0 8px; font-size: 18px; }
+.ck-dna h3 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+.ck-mlist { display: flex; flex-direction: column; gap: 6px; }
+.ck-moment { display: grid; grid-template-columns: 78px 1fr 22px; align-items: center; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; background: rgba(10, 14, 23, 0.55); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.ck-moment:hover { border-color: var(--accent); }
+.ck-mt { font-family: var(--font-mono); font-size: 17px; font-weight: 600; }
+.ck-mt.loss { color: var(--loss); }
+.ck-mt.gain { color: var(--gain); }
+.ck-ml small { display: block; color: var(--muted); font-size: 12px; }
+.ck-go { color: var(--accent); }
+.ck-radarbox { position: relative; height: 300px; }
+.ck-dnanote { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+@media (max-width: 860px) {
+  .ck-stage { grid-template-columns: 1fr; }
+  .ck-lower { grid-template-columns: 1fr; }
+  .ck-tape { height: 210px; }
+}
+
+.ck-gaplabel { text-align: center; line-height: 1.5; }
+.ck-gaplabel .loss { color: var(--loss); }
+.ck-gaplabel .gain { color: var(--gain); }
+.ck-keys { margin-left: auto; color: var(--muted); font-size: 12px; }

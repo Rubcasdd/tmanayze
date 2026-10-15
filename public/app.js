@@ -731,16 +731,17 @@ function setTab(name) {
   $$(".view").forEach((v) => (v.hidden = v.dataset.view !== name));
   if (name === "board") ensureBoardPage(state.board && state.board.offset ? state.board.offset : 0);
   if (name === "track" && typeof TrackPage !== "undefined") TrackPage.showTab();
+  if (typeof Cockpit !== "undefined") { if (name === "cockpit") Cockpit.show(); else Cockpit.pause(); }
   if (name === "overview" && state.trackMap) requestAnimationFrame(drawTrackMap);
 }
 
 function updateTabAvailability() {
   const has = !!state.compare;
-  ["sections", "corners", "playbook", "coach", "track"].forEach((t) => {
+  ["sections", "corners", "playbook", "cockpit", "coach", "track"].forEach((t) => {
     const b = $(`.ws-bar .tab[data-tab="${t}"]`);
     b.disabled = !has;
   });
-  if (!has && ["sections", "corners", "playbook", "coach", "track"].includes(state.tab)) setTab("overview");
+  if (!has && ["sections", "corners", "playbook", "cockpit", "coach", "track"].includes(state.tab)) setTab("overview");
 }
 
 // ---- adding ghosts
@@ -1068,6 +1069,7 @@ function renderComparison() {
     renderCorners(data);
     renderPlan(primary);
     renderPlaybook(primary);
+    if (typeof renderCockpit === "function") renderCockpit(primary);
   } else {
     $("#sections-grid").innerHTML = "";
     $("#corner-tbody").innerHTML = "";

@@ -167,6 +167,7 @@
         <div class="tabs" role="tablist" aria-label="Views">
           <button role="tab" class="tab on" data-tab="overview">Overview</button>
           <button role="tab" class="tab" data-tab="track">Track</button>
+          <button role="tab" class="tab" data-tab="cockpit">Cockpit</button>
           <button role="tab" class="tab" data-tab="sections">Sections</button>
           <button role="tab" class="tab" data-tab="corners">Corners</button>
           <button role="tab" class="tab" data-tab="playbook">Playbook</button>
@@ -297,6 +298,15 @@
           <div class="section-nav" id="section-nav"></div>
           <div class="legend-row" id="sections-legend"></div>
           <div id="sections-grid" class="sections-grid"></div>
+        </div>
+
+        <!-- COCKPIT -->
+        <div class="view" data-view="cockpit" hidden>
+          <div class="block-head">
+            <h2 class="section-title">Cockpit</h2>
+            <span class="hint">Watch both runs' inputs live: wheel, pedals and speed for you and the ghost, the input tape, the gap, and the moments that cost the most.</span>
+          </div>
+          <div id="cockpit-body"></div>
         </div>
 
         <!-- CORNERS -->
@@ -436,5 +446,6 @@
 <script src="lap.js"></script>
 <script src="skills.js"></script>
 <script src="track.js"></script>
+<script src="cockpit.js"></script>
 </body>
 </html>
