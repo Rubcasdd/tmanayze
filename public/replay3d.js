@@ -32,7 +32,7 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    show: { tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
+    hudSize: 1, show: { timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
     rec: null, root: null, shake: 0, others: [], keys: {}, free: null, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
   };
 
@@ -684,7 +684,7 @@ const Replay3D = (() => {
   // up fills with the throttle and down with the brake, and the exact percentages are written underneath
   function drawPad(c, x, y, v, label, color) {
     const w = 206, h = 116;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, w, h);
     c.fillStyle = color; c.fillRect(x, y, 3, h);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
@@ -697,7 +697,7 @@ const Replay3D = (() => {
   function drawInputs(c, x, y, v, label, color) {
     if (R.show.pad) { drawPad(c, x, y - 20, v, label, color); return; }
     const w = 170, h = 96;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, w, h);
     c.fillStyle = color; c.fillRect(x, y, 3, h);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
@@ -716,7 +716,7 @@ const Replay3D = (() => {
     const v = V.tag || (V.tag = new R.THREE.Vector3());
     v.copy(car.p).addScaledVector(car.u, 2.4).project(gl.camera);
     if (v.z > 1 || v.z < -1) return;
-    const W = c.canvas.clientWidth, H = c.canvas.clientHeight, x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+    const W = c.canvas.clientWidth / R.k, H = c.canvas.clientHeight / R.k, x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
     if (x < 10 || x > W - 10 || y < 10 || y > H - 10) return;
     c.font = `700 13px Barlow, sans-serif`;
     const tw = Math.max(c.measureText(text).width, sub ? c.measureText(sub).width : 0) + 14;
@@ -735,7 +735,7 @@ const Replay3D = (() => {
       const sc = Math.min((mw - 16) / Math.max(1, b - a), (mh - 16) / Math.max(1, e - d)), ox = (mw - (b - a) * sc) / 2, oz = (mh - (e - d) * sc) / 2;
       const cv = document.createElement("canvas"); cv.width = mw * 2; cv.height = mh * 2;
       const q = cv.getContext("2d"); q.scale(2, 2);
-      q.fillStyle = "rgba(8,12,22,0.62)"; q.fillRect(0, 0, mw, mh);
+      q.fillStyle = "rgba(8,12,22,0.5)"; q.fillRect(0, 0, mw, mh);
       q.strokeStyle = "#5d6c93"; q.lineWidth = 2; q.lineJoin = "round"; q.beginPath();
       pts.forEach((p, i) => { const X = ox + (p.x - a) * sc, Y = oz + (p.z - d) * sc; if (i) q.lineTo(X, Y); else q.moveTo(X, Y); }); q.stroke();
       R.map = { w: mw, cv, a, d, sc, ox, oz };
@@ -775,7 +775,7 @@ const Replay3D = (() => {
   function drawTower(c) {
     if (!R.show.tower) return;
     const rows = tower(), x = 12, y = 46, rh = 20;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, 196, 8 + rows.length * rh);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, 196, 8 + rows.length * rh);
     rows.forEach((r, i) => {
       const yy = y + 4 + i * rh;
       if (r.you) { c.fillStyle = "rgba(143,123,255,0.28)"; c.fillRect(x + 2, yy, 192, rh - 1); }
@@ -791,13 +791,18 @@ const Replay3D = (() => {
   }
 
   function drawHud() {
-    const cv = gl.hud, w = cv.clientWidth, h = cv.clientHeight;
-    if (!w) return;
+    const cv = gl.hud;
+    if (!cv.clientWidth) return;
+    // the display is laid out for a 1000-pixel-wide picture and scaled to the real one, times the HUD size setting
+    const k = clamp(R.hudSize * cv.clientWidth / 1000, 0.4, 1.5);
+    R.k = k;
+    const w = cv.clientWidth / k, h = cv.clientHeight / k;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) { cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr); }
     const c = cv.getContext("2d");
-    c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0); c.clearRect(0, 0, w, h);
     const d = delta(R.t);
+    if (R.show.timer) {
     pill(c, w / 2 - 78, 12, 156, 32, "rgba(12,14,20,0.88)", "#fff", mmss(R.t), `700 22px "Barlow Condensed", "Arial Narrow", sans-serif`);
     pill(c, w / 2 - 78, 46, 156, 28, d > 0 ? "#d9363e" : "#2f6df0", "#fff", sgn(d), `700 19px "Barlow Condensed", "Arial Narrow", sans-serif`);
     // on pace for: the ghost's finish plus today's gap, like the Predictor plugin
@@ -812,17 +817,18 @@ const Replay3D = (() => {
         pill(c, w / 2 - 78, 156, 156, 22, "rgba(12,14,20,0.88)", dv < 0 ? "#ff8a9a" : "#7fe8c0", `${hit.sy} km/h  (${dv >= 0 ? "+" : "-"}${Math.abs(dv)})`, `700 14px "Barlow Condensed", sans-serif`);
       }
     }
+    }
     drawTower(c);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     const m = MODES.find((x) => x[0] === R.cam.mode);
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(12, 12, 150, 24);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(12, 12, 150, 24);
     c.fillStyle = "#eef2fb"; c.font = `700 13px Barlow, sans-serif`; c.fillText(`CAM  ${m ? m[1].toUpperCase() : ""}`, 22, 29);
     if (R.rate !== 1) {
       c.fillStyle = "rgba(255,194,71,0.9)"; c.fillRect(w - 112, 12, 100, 26);
       c.fillStyle = "#1a1304"; c.font = `800 15px Barlow, sans-serif`; c.textAlign = "center"; c.fillText(R.rate < 1 ? `SLOW ${R.rate}×` : `${R.rate}×`, w - 62, 30);
     }
     if (R.rec) { c.fillStyle = "#ff5a73"; c.beginPath(); c.arc(w - 130, 25, 6, 0, 7); c.fill(); }
-    drawMini(c, w);
+    if (R.show.mini) drawMini(c, w);
     // names over the cars and the distance between them
     const gap = gl.cy.p.distanceTo(gl.cg.p);
     const rel = (V.rv || (V.rv = new R.THREE.Vector3())).copy(gl.cg.p).sub(gl.cy.p).dot(gl.cy.f);
@@ -848,8 +854,8 @@ const Replay3D = (() => {
     }
     // a slide badge
     if (R.slip && R.slip > 9 && !fl) { pill(c, 12, h - (R.show.pad ? 168 : 148), 110, 28, "rgba(255,150,40,0.85)", "#1d1103", `DRIFT ${Math.round(R.slip)}°`, `800 17px "Barlow Condensed", sans-serif`); }
-    drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
-    if (R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
+    if (R.show.inputs) drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
+    if (R.show.inputs && R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
     if (R.show.bars) { c.fillStyle = "#000"; c.fillRect(0, 0, w, h * 0.1); c.fillRect(0, h * 0.9, w, h * 0.1); }
   }
 
@@ -1072,6 +1078,24 @@ const Replay3D = (() => {
     out.toBlob((blob) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "replay-frame.png"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); });
   }
 
+  // ------------------------------------------------------------------ HUD settings, remembered between visits
+
+  const HUD_KEYS = ["timer", "inputs", "mini", "tower", "pad"];
+  function saveHud() { try { localStorage.setItem("tm-hud", JSON.stringify({ size: R.hudSize, ...Object.fromEntries(HUD_KEYS.map((k) => [k, R.show[k]])) })); } catch (e) { /* a convenience only */ } }
+  function loadHud() {
+    try {
+      const h = JSON.parse(localStorage.getItem("tm-hud") || "null");
+      if (!h) return;
+      if (typeof h.size === "number") R.hudSize = clamp(h.size, 0.4, 1.4);
+      for (const k of HUD_KEYS) if (typeof h[k] === "boolean") R.show[k] = h[k];
+    } catch (e) { /* ignore */ }
+  }
+  function syncHudUi() {
+    const q = (s) => R.root.querySelector(s);
+    q(".rp-hudsize").value = Math.round(R.hudSize * 100);
+    for (const [cls, k] of [["rp-timer", "timer"], ["rp-inputs", "inputs"], ["rp-mini", "mini"], ["rp-tower", "tower"], ["rp-pad", "pad"]]) q("." + cls).checked = !!R.show[k];
+  }
+
   // ------------------------------------------------------------------ DOM
 
   function template() {
@@ -1109,9 +1133,17 @@ const Replay3D = (() => {
             ${chk("rp-ghostvis", "Ghost", true)}${chk("rp-fxon", "Spray, sparks, streaks", true)}
             ${chk("rp-trails", "Trails", true)}${chk("rp-arcs", "Jump arcs", true)}
             ${chk("rp-gates", "Checkpoints", true)}${chk("rp-shadows", "Shadows", true)}
-            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-pad", "Arrow input display", true)}${chk("rp-tower", "Timing tower", true)}
+            ${chk("rp-bars", "Cinematic bars", false)}
           </div>
           <button type="button" class="btn quiet rp-drop" title="Pin a trackside camera here so the cars drive past it">Pin a trackside camera here</button>
+        </section>
+        <section><h3>On-screen display</h3>
+          <div class="rp-sliders"><label>HUD size<input type="range" class="rp-hudsize" min="40" max="140" step="5" /></label></div>
+          <div class="rp-checks">
+            ${chk("rp-timer", "Timer and gaps", true)}${chk("rp-tower", "Timing tower", true)}
+            ${chk("rp-inputs", "Inputs", true)}${chk("rp-pad", "Arrow input display", true)}
+            ${chk("rp-mini", "Mini-map", true)}
+          </div>
         </section>
         <section><h3>Air <small>jumps, replay them in slow motion</small></h3><div class="rp-airlist"></div></section>
         <section><h3>Shots <small>camera cuts</small></h3>
@@ -1148,7 +1180,9 @@ const Replay3D = (() => {
     const tog = (cls, fn) => q(cls).addEventListener("change", (e) => { fn(e.target.checked); render(0, true); });
     tog(".rp-sfov", (v) => (R.cam.speedFov = v)); tog(".rp-shake", (v) => (R.show.shake = v)); tog(".rp-ghostvis", (v) => (R.show.ghost = v));
     tog(".rp-fxon", (v) => (R.show.fx = v)); tog(".rp-trails", (v) => (R.show.trails = v)); tog(".rp-arcs", (v) => (R.show.arcs = v));
-    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => (R.show.pad = v)); tog(".rp-tower", (v) => (R.show.tower = v));
+    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => { R.show.pad = v; saveHud(); }); tog(".rp-tower", (v) => { R.show.tower = v; saveHud(); });
+    tog(".rp-timer", (v) => { R.show.timer = v; saveHud(); }); tog(".rp-inputs", (v) => { R.show.inputs = v; saveHud(); }); tog(".rp-mini", (v) => { R.show.mini = v; saveHud(); });
+    q(".rp-hudsize").addEventListener("input", (e) => { R.hudSize = +e.target.value / 100; saveHud(); render(0, true); });
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
     q(".rp-cuts").addEventListener("change", (e) => { R.cuts = e.target.checked; R.shotIdx = -2; checkShots(true); });
     q(".rp-addshot").addEventListener("click", addShot);
@@ -1256,7 +1290,7 @@ const Replay3D = (() => {
           sy: Math.round(at(R.you, t, o1, THREE).speed), sg: Math.round(at(R.ghost, ref.checkpoints[i], o2, THREE).speed) }));
       } else R.cps = [];
       R.key = key; R.loaded = true; R.t = 0; R.prevT = 0; R.playing = false; R.cam = { ...DEFAULT_CAM }; R.rate = 1; R.shotIdx = -1; R.clip = null; R.cuts = true;
-      loadShots();
+      loadShots(); loadHud(); syncHudUi();
       root.querySelector(".rp-loading").hidden = true;
       renderShots(); renderAir(); resize();
       seek(0);
