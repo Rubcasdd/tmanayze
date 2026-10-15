@@ -45,6 +45,8 @@ const Cockpit = (() => {
     S.bbox = { x0, x1, z0, z1 };
     S.moments = buildMoments(primary);
     S.notes = buildNotes(primary);
+    S.splits = null;
+    S.loop = null;
   }
 
   // index and fraction of the first point at or after time t in a sorted array
@@ -126,6 +128,9 @@ const Cockpit = (() => {
           <button type="button" data-mode="race" title="Both at the same moment of the race: the ghost really is ahead or behind">Race clock</button>
         </div>
         <label class="tv-check"><input type="checkbox" class="ck-voice" /> Co-driver voice</label>
+        <label class="tv-check"><input type="checkbox" class="ck-engine" /> Engine sound</label>
+        <label class="tv-check" title="Play a moment on repeat so you can study it"><input type="checkbox" class="ck-loop" /> Loop a moment</label>
+        <button type="button" class="btn quiet ck-rec" title="Record the replay as a video you can share">&#9679; Record clip</button>
         <span class="ck-keys">space play · ← → 1 s (shift 5 s) · , . one frame</span>
       </div>
       <div class="ck-stripwrap"><canvas class="ck-strip" aria-label="Gap to the ghost over the lap. Click or drag to scrub."></canvas><span class="ck-striphint">gap to the ghost &mdash; red: you are losing, green: gaining</span></div>
@@ -135,11 +140,14 @@ const Cockpit = (() => {
           <div class="ck-gap mono">0.000</div>
           <div class="ck-gaplabel">behind the ghost</div>
           <canvas class="ck-map" aria-label="Where both cars are on the track"></canvas>
+          <div class="ck-cues"><h4>Ghost, next</h4><ul class="ck-cuelist"></ul></div>
+          <div class="ck-splits"><h4>Splits</h4><div class="ck-splitlist"></div></div>
         </div>
         <div class="ck-card ck-ghost"><h3>Ghost</h3><canvas class="ck-dash"></canvas></div>
       </div>
       <div class="ck-tapewrap"><canvas class="ck-tape" aria-label="Inputs of both drivers around now"></canvas>
         <div class="ck-tapekey"><span><i style="background:${YOU}"></i>you</span><span><i style="background:${GHOST}"></i>ghost</span><span><i style="background:${GAIN}"></i>throttle</span><span><i style="background:${LOSS}"></i>brake</span></div></div>
+      <section class="ck-ultimate"><h3>Ultimate lap <small>the best stretch between checkpoints from every run on this map</small></h3><div class="ck-ubody"></div></section>
       <div class="ck-lower">
         <section class="ck-moments"><h3>Moments that cost the most</h3><div class="ck-mlist"></div></section>
         <section class="ck-dna"><h3>Driver DNA <small>100 = matches the ghost</small></h3><div class="ck-radarbox"><canvas class="ck-radar"></canvas></div><p class="ck-dnanote"></p></section>
@@ -153,6 +161,7 @@ const Cockpit = (() => {
     root = document.getElementById("cockpit-body");
     if (!root) return;
     if (S.radar) { S.radar.destroy(); S.radar = null; }
+    stopRecord();
     pause();
     if (!primary || !primary.points || primary.points.length < 4) {
       root.innerHTML = `<div class="hint">The cockpit needs two runs with driving data. Pick your run and a ghost first.</div>`;
@@ -164,6 +173,7 @@ const Cockpit = (() => {
     wire();
     renderMoments();
     renderRadar();
+    renderUltimate();
     S.dirty = true;
     if (!root.closest("[hidden]")) draw();
   }
@@ -184,9 +194,12 @@ const Cockpit = (() => {
       q(".ck-gaplabel").hidden = false;
       draw();
     }));
+    q(".ck-engine").addEventListener("change", (e) => Engine.toggle(e.target.checked));
+    q(".ck-rec").addEventListener("click", () => (S.rec ? stopRecord() : startRecord()));
     const strip = q(".ck-strip");
     const seek = (ev) => {
       const r = strip.getBoundingClientRect();
+      S.loop = null;
       S.t = clamp((ev.clientX - r.left) / r.width, 0, 1) * S.tEnd;
       S.spoken = new Set([...S.notes].filter((n) => n.t < S.t).map((n) => n.id));
       draw();
@@ -212,6 +225,7 @@ const Cockpit = (() => {
       <span class="ck-ml"><b>${esc(m.label)}</b><small>${esc(m.sub)}</small></span><span class="ck-go">&#9654;</span></button>`).join("");
     box.querySelectorAll(".ck-moment").forEach((b) => b.addEventListener("click", () => {
       const m = S.moments[+b.dataset.i];
+      S.loop = root.querySelector(".ck-loop").checked ? { a: m.t, b: Math.min(S.tEnd, m.t + 6000) } : null;
       S.t = m.t;
       S.spoken = new Set(S.notes.filter((n) => n.t < S.t).map((n) => n.id));
       draw();
@@ -232,8 +246,12 @@ const Cockpit = (() => {
       if (!S.playing) return;
       S.t = Math.min(S.tEnd, S.t + (now - S.last) * S.speed);
       S.last = now;
+      if (S.loop && root.querySelector(".ck-loop").checked && S.t >= S.loop.b) {   // round again
+        S.t = S.loop.a;
+        S.spoken = new Set(S.notes.filter((n) => n.t < S.t).map((n) => n.id));
+      }
       draw();
-      if (S.t >= S.tEnd) return pause();
+      if (S.t >= S.tEnd) { stopRecord(); return pause(); }
       S.raf = requestAnimationFrame(tick);
     };
     S.raf = requestAnimationFrame(tick);
@@ -242,6 +260,7 @@ const Cockpit = (() => {
   function pause() {
     S.playing = false;
     cancelAnimationFrame(S.raf);
+    Engine.update(null, null);
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     const b = root && root.querySelector(".ck-play");
     if (b) b.innerHTML = "&#9654;";
@@ -290,6 +309,10 @@ const Cockpit = (() => {
     drawStrip();
     drawMap(fr);
     drawTape();
+    drawCues(fr);
+    drawSplits(S.t);
+    if (S.playing) Engine.update(fr.y, fr.g);
+    if (S.rec) compose(d, gapEl.style.color);
     if (S.voice && S.playing) {
       for (const n of S.notes) {
         if (!S.spoken.has(n.id) && S.t >= n.t && S.t < n.t + 1200) { S.spoken.add(n.id); say(n.text); }
@@ -556,6 +579,212 @@ const Cockpit = (() => {
       `Each corner is your speed against the ghost's at the same corner, 100 meaning the same. Weakest against this ghost: ${weakest[0].toLowerCase()}.`;
   }
 
+  // ------------------------------------------------------------------ what the ghost does next
+
+  function drawCues(fr) {
+    const list = root.querySelector(".ck-cuelist");
+    const pts = S.pts, rt = S.rt, j = fr.j, now = rt[j], horizon = 1800;
+    const cues = [];
+    const brakingNow = fr.g.brake > 0.1;
+    let brakeAt = null, liftAt = null, peak = 0, peakAt = null;
+    for (let k = j + 1; k < pts.length && rt[k] - now <= horizon; k++) {
+      const dt = (rt[k] - now) / 1000;
+      if (brakeAt == null && !brakingNow && pts[k].reference_brake > 0.15) brakeAt = dt;
+      if (liftAt == null && fr.g.gas > 0.5 && pts[k].reference_gas < 0.1 && pts[k].reference_brake < 0.1) liftAt = dt;
+      if (Math.abs(pts[k].reference_steer) > Math.abs(peak) + 0.001) { peak = pts[k].reference_steer; peakAt = dt; }
+    }
+    if (brakeAt != null) cues.push(["brake", `Brakes in ${brakeAt.toFixed(1)} s`, LOSS]);
+    if (liftAt != null) cues.push(["lift", `Lifts the throttle in ${liftAt.toFixed(1)} s`, WARN]);
+    if (Math.abs(peak) >= 0.45 && Math.abs(peak) - Math.abs(fr.g.steer) > 0.2) cues.push(["steer", `Steers ${peak > 0 ? "right" : "left"} ${Math.abs(peak).toFixed(2)} in ${peakAt.toFixed(1)} s`, GHOST]);
+    else if (Math.abs(fr.g.steer) > 0.45) cues.push(["steer", `Holding ${fr.g.steer > 0 ? "right" : "left"} ${Math.abs(fr.g.steer).toFixed(2)}`, GHOST]);
+    if (!cues.length) cues.push(["flat", "Straight on, throttle down", GAIN]);
+    const html = cues.slice(0, 3).map((q) => `<li style="border-left-color:${q[2]}">${esc(q[1])}</li>`).join("");
+    if (list.dataset.h !== html) { list.innerHTML = html; list.dataset.h = html; }
+  }
+
+  // ------------------------------------------------------------------ splits as the replay passes each checkpoint
+
+  function splitData() {
+    const me = state.runs.find((r) => r.id === state.subjectId);
+    const ref = state.runs.find((r) => r.id === state.primaryRefId);
+    if (!me || !ref || !Array.isArray(me.checkpoints) || !Array.isArray(ref.checkpoints) || me.checkpoints.length !== ref.checkpoints.length) return null;
+    return me.checkpoints.map((t, i) => ({ t, d: t - ref.checkpoints[i], name: i === me.checkpoints.length - 1 ? "Finish" : `CP ${i + 1}` }));
+  }
+
+  function drawSplits(t) {
+    const box = root.querySelector(".ck-splitlist");
+    const data = S.splits || (S.splits = splitData());
+    if (!data) { box.parentElement.hidden = true; return; }
+    const done = data.filter((x) => x.t <= t);
+    const key = String(done.length);
+    if (box.dataset.k === key) return;
+    const fresh = box.dataset.k != null && done.length > +box.dataset.k;
+    box.dataset.k = key;
+    box.innerHTML = data.map((x, i) => {
+      const on = x.t <= t;
+      return `<div class="ck-split${on ? " on" : ""}${on && i === done.length - 1 && fresh ? " flash" : ""}"><span>${x.name}</span><b class="mono ${on ? (x.d > 4 ? "loss" : x.d < -4 ? "gain" : "") : ""}">${on ? fmtGap(x.d) : "–"}</b></div>`;
+    }).join("");
+    if (fresh && S.voice && S.playing) {
+      const x = done[done.length - 1];
+      say(`${x.name}, ${x.d > 0 ? "plus" : "minus"} ${(Math.abs(x.d) / 1000).toFixed(2)}`);
+    }
+  }
+
+  // ------------------------------------------------------------------ the ultimate lap
+
+  // segment times from a run's cumulative checkpoint times
+  const segs = (cps) => cps.map((t, i) => t - (i ? cps[i - 1] : 0));
+
+  function renderUltimate() {
+    const box = root.querySelector(".ck-ubody"), sec = root.querySelector(".ck-ultimate");
+    const me = state.runs.find((r) => r.id === state.subjectId);
+    const pool = state.runs.filter((r) => r.map_uid === (me && me.map_uid) && Array.isArray(r.checkpoints) && me && r.checkpoints.length === me.checkpoints.length && r.checkpoints.length > 1);
+    if (!me || !Array.isArray(me.checkpoints) || me.checkpoints.length < 2 || pool.length < 2) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const n = me.checkpoints.length;
+    const mine = segs(me.checkpoints);
+    const best = mine.map((_, i) => pool.reduce((b, r) => { const v = segs(r.checkpoints)[i]; return !b || v < b.v ? { v, who: r } : b; }, null));
+    const own = pool.filter((r) => r.kind === "run");
+    const ownBest = mine.map((_, i) => own.reduce((m, r) => Math.min(m, segs(r.checkpoints)[i]), Infinity));
+    const ultimate = best.reduce((a, b) => a + b.v, 0), wr = Math.min(...pool.map((r) => r.race_time_ms || Infinity));
+    const mineTotal = me.checkpoints[n - 1];
+    const ownUlt = own.length >= 2 ? ownBest.reduce((a, b) => a + b, 0) : null;
+    const maxSeg = Math.max(...mine, ...best.map((b) => b.v));
+    const name = (r) => (typeof tmName === "function" ? tmName(r.player_nickname) : r.player_nickname) || "run";
+    const label = (i) => `${i === 0 ? "Start" : "CP " + i} → ${i === n - 1 ? "Finish" : "CP " + (i + 1)}`;
+    const f = (ms) => (ms / 1000).toFixed(3);
+    const rows = mine.map((v, i) => {
+      const gap = v - best[i].v;
+      return `<div class="ck-urow"><span class="ck-ul">${label(i)}</span>
+        <span class="ck-ubar"><i class="you" style="width:${(v / maxSeg) * 100}%"></i><i class="best" style="width:${(best[i].v / maxSeg) * 100}%"></i></span>
+        <span class="mono">${f(v)}</span><span class="mono ${gap > 4 ? "loss" : "gain"}">${gap > 4 ? "+" + f(gap) : "best"}</span>
+        <span class="ck-uw">${gap > 4 ? esc(name(best[i].who)) : ""}</span></div>`;
+    }).join("");
+    box.innerHTML = `<div class="ck-uhead">
+        <div><b class="mono">${fmtTime(Math.round(ultimate))}</b><small>ultimate lap, never driven</small></div>
+        <div><b class="mono gain">−${f(mineTotal - ultimate)}s</b><small>against this run</small></div>
+        <div><b class="mono ${ultimate < wr ? "gain" : ""}">${ultimate < wr ? "−" : "+"}${f(Math.abs(wr - ultimate))}s</b><small>against the fastest run here</small></div>
+        ${ownUlt != null ? `<div><b class="mono">${fmtTime(Math.round(ownUlt))}</b><small>your own best segments</small></div>` : ""}
+      </div>
+      <div class="ck-ukey"><span><i class="you"></i>this run</span><span><i class="best"></i>best stretch</span></div>${rows}`;
+  }
+
+  // ------------------------------------------------------------------ engine sound
+
+  // a synthesised engine: the pitch follows your speed and steps down at the real gear shifts (about 100, 160, 235, 341 km/h);
+  // the ghost is a softer, higher note on the right.
+  const Engine = (() => {
+    const SHIFTS = [0, 100, 160, 235, 341, 600];
+    let ctx = null, on = false, voices = null;
+    const make = (pan, type) => {
+      const o = ctx.createOscillator(), o2 = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain(), p = ctx.createStereoPanner();
+      o.type = type; o2.type = "square"; lp.type = "lowpass"; lp.frequency.value = 900; g.gain.value = 0; p.pan.value = pan;
+      const g2 = ctx.createGain(); g2.gain.value = 0.35;
+      o.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g); g.connect(p); p.connect(ctx.destination);
+      o.start(); o2.start();
+      return { o, o2, g, lp };
+    };
+    const drive = (v, gain, speed, gas) => {
+      let k = 0; while (k < SHIFTS.length - 2 && speed >= SHIFTS[k + 1]) k++;
+      const rpm = clamp((speed - SHIFTS[k]) / (SHIFTS[k + 1] - SHIFTS[k]), 0, 1);
+      const f = 52 + k * 7 + rpm * (95 - k * 6);
+      const now = ctx.currentTime;
+      v.o.frequency.setTargetAtTime(f * gain.pitch, now, 0.03);
+      v.o2.frequency.setTargetAtTime(f * gain.pitch * 2.01, now, 0.03);
+      v.lp.frequency.setTargetAtTime(500 + rpm * 1400 + gas * 600, now, 0.05);
+      v.g.gain.setTargetAtTime(gain.vol * (0.35 + 0.65 * gas), now, 0.05);
+    };
+    return {
+      toggle(enable) {
+        on = enable;
+        if (!on) { this.update(null, null); return; }
+        try {
+          if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (ctx.state === "suspended") ctx.resume();
+          if (!voices) voices = { you: make(-0.45, "sawtooth"), ghost: make(0.45, "triangle") };
+        } catch (e) { on = false; }
+      },
+      update(you, ghost) {
+        if (!ctx || !voices) return;
+        if (!on || !you) { for (const v of Object.values(voices)) v.g.gain.setTargetAtTime(0, ctx.currentTime, 0.05); return; }
+        drive(voices.you, { pitch: 1, vol: 0.05 }, you.speed, you.gas);
+        drive(voices.ghost, { pitch: 1.5, vol: 0.022 }, ghost.speed, ghost.gas);
+      },
+    };
+  })();
+
+  // ------------------------------------------------------------------ recording a clip
+
+  const REC_W = 1280, REC_H = 720;
+
+  function startRecord() {
+    if (!S.pts.length || typeof MediaRecorder === "undefined") { alert("This browser can't record video."); return; }
+    const out = document.createElement("canvas");
+    out.width = REC_W; out.height = REC_H;
+    const stream = out.captureStream(30);
+    const type = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+    const rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 6000000 } : {});
+    const chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      S.lastClipBytes = blob.size;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const nm = (state.map && state.map.name) || "replay";
+      a.download = `cockpit-${String(nm).replace(/[^\w]+/g, "-").toLowerCase()}.webm`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    };
+    S.rec = { out, ctx: out.getContext("2d"), rec, started: performance.now() };
+    const btn = root.querySelector(".ck-rec");
+    btn.textContent = "■ Stop and save";
+    btn.classList.add("rec-on");
+    rec.start(250);
+    S.t = Math.max(0, S.t);
+    play();
+  }
+
+  function stopRecord() {
+    if (!S.rec) return;
+    const r = S.rec;
+    S.rec = null;
+    try { r.rec.stop(); } catch (e) { /* already stopped */ }
+    const btn = root && root.querySelector(".ck-rec");
+    if (btn) { btn.innerHTML = "&#9679; Record clip"; btn.classList.remove("rec-on"); }
+  }
+
+  // one frame of the clip: the dashboard laid out on a 16:9 canvas
+  function compose(delta, gapColor) {
+    const { ctx: c } = S.rec;
+    const g = c.createLinearGradient(0, 0, REC_W, REC_H);
+    g.addColorStop(0, "#131b2e"); g.addColorStop(1, "#080b13");
+    c.fillStyle = g; c.fillRect(0, 0, REC_W, REC_H);
+    c.fillStyle = "#8f7bff"; c.fillRect(0, 0, 8, REC_H);
+    const q = (s) => root.querySelector(s);
+    const img = (cv, x, y, w, h) => { if (cv.width) c.drawImage(cv, x, y, w, h || (w * cv.height) / cv.width); };
+    c.textBaseline = "alphabetic"; c.textAlign = "left";
+    c.fillStyle = "#7d8aa6"; c.font = `600 15px Barlow, sans-serif`; c.fillText("TRACKMANIA AI ANALYZER", 28, 34);
+    c.fillStyle = "#eef2fb"; c.font = `700 30px "Barlow Condensed", "Arial Narrow", sans-serif`;
+    c.fillText(`${((state.map && state.map.name) || "").toUpperCase()}   ·   ${S.mode === "race" ? "RACE CLOCK" : "SAME SPOT"}`, 28, 66);
+    c.textAlign = "right"; c.font = `600 26px "IBM Plex Mono", monospace`; c.fillText(`${(S.t / 1000).toFixed(2)} s`, REC_W - 28, 60);
+    img(q(".ck-strip"), 24, 80, REC_W - 48, 92);
+    const dashes = root.querySelectorAll(".ck-dash");
+    const dh = (cv) => (460 * cv.height) / cv.width;
+    c.fillStyle = "#eef2fb"; c.textAlign = "left"; c.font = `700 16px Barlow, sans-serif`; c.fillText("YOU", 28, 200);
+    img(dashes[0], 24, 208, 460);
+    c.fillStyle = "#5b8def"; c.textAlign = "right"; c.fillText("GHOST", REC_W - 28, 200);
+    img(dashes[1], REC_W - 484, 208, 460);
+    c.textAlign = "center"; c.fillStyle = gapColor || "#eef2fb"; c.font = `700 60px "IBM Plex Mono", monospace`;
+    c.fillText(`${delta > 0 ? "+" : delta < 0 ? "−" : ""}${(Math.abs(delta) / 1000).toFixed(3)}`, REC_W / 2, 250);
+    c.fillStyle = "#7d8aa6"; c.font = `600 15px Barlow, sans-serif`;
+    c.fillText(delta > 8 ? "BEHIND THE GHOST" : delta < -8 ? "AHEAD OF THE GHOST" : "LEVEL WITH THE GHOST", REC_W / 2, 276);
+    const mp = q(".ck-map");
+    img(mp, REC_W / 2 - 110, 284, 220, (220 * mp.height) / Math.max(1, mp.width));
+    const tp = q(".ck-tape");
+    img(tp, 24, 214 + Math.max(dh(dashes[0]), 210) + 8, REC_W - 48, REC_H - (214 + Math.max(dh(dashes[0]), 210) + 8) - 14);
+  }
+
   // ------------------------------------------------------------------ tab hooks
 
   function show() {
@@ -578,7 +807,7 @@ const Cockpit = (() => {
 
   window.addEventListener("resize", () => { if (root && !root.closest("[hidden]")) draw(); });
 
-  return { render, show, pause };
+  return { render, show, pause, stats: () => ({ clipBytes: S.lastClipBytes || 0, rec: !!S.rec }), stopRecord };
 })();
 
 function renderCockpit(primary) { Cockpit.render(primary); }
