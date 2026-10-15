@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, skills as skills_mod, techniques
+from . import blueprint as blueprint_mod, checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, skills as skills_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -147,6 +147,7 @@ class AnalyzeRequest(BaseModel):
     history: dict | None = None
     previous: dict | None = None
     depth: str | None = None
+    others: list[RunPayload] = Field(default_factory=list, max_length=3)  # more ghosts: the blueprint uses all of them
 
 
 def _label(run: dict, fallback: str) -> str:
@@ -373,6 +374,14 @@ def compare(body: CompareRequest):
             "skills": skills_report,
             "checkpoints": cp_rows,
         }
+    try:  # the steering of the references, metre by metre, against the player's
+        first = body.references[0].id if body.references else None
+        analog = str(out[first]["stats"].get("reference_input_style", "analog")).startswith("analog") if first else True
+        bp = blueprint_mod.build(points_by_ref, first, analog) if first else None
+    except Exception:
+        bp = None
+    for entry in out.values():
+        entry["blueprint"] = bp
     try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
         moves = driving_mod.field_moves(points_by_ref, subject_flights, flights_by_ref)
     except Exception:
@@ -441,6 +450,17 @@ def analyze(
     result = compare_runs(subject, reference, checkpoints_mod.section_bounds(cp_info))
     found = focus.find_focus(result.stats, result.corners, result.sections)
     map_uid = subject.get("map_uid") or reference.get("map_uid")
+    blueprint_data = None
+    if result.stats.get("telemetry"):
+        try:
+            pts = {"main": result.points}
+            for k, other in enumerate(body.others[:2]):
+                o = compare_runs(subject, other.as_run(), checkpoints_mod.section_bounds(cp_info))
+                if o.stats.get("telemetry"):
+                    pts[f"other{k}"] = o.points
+            blueprint_data = blueprint_mod.build(pts, "main", str(result.stats.get("reference_input_style", "analog")).startswith("analog"))
+        except Exception:
+            blueprint_data = None
 
     insights = None
     if map_uid:
@@ -455,6 +475,7 @@ def analyze(
     # what kind of map this is, so the coach can name techniques, not just "go faster".
     signals_block, style_line, styles = "", "", []
     surface_block, inputs_block, figures_block = "", "", ""
+    blueprint_block, steering_plan = "", False
     if result.stats.get("telemetry"):
         try:
             samples = subject.get("samples") or []
@@ -512,9 +533,17 @@ def analyze(
             styles = techniques.detect_styles(map_tags, features, share)
             style_line = techniques.style_text(styles)
             signals_block += "\n" + signals_mod.findings_text(tech_findings, styles)
+            # on ice and bobsleigh maps the whole lap is steering: give the coach every corner's script and the full blueprint
+            icy = any(s in ("bobsleigh", "ice") for s, _ in styles)
+            if icy:
+                inputs_block = coach.input_scripts_text(result.corners, [c["corner_index"] for c in result.corners][:16])
+            if blueprint_data:
+                blueprint_block = blueprint_mod.blueprint_text(blueprint_data, deep=icy or body.depth == "deep")
+                steering_plan = icy or body.depth in ("deep", "detailed")
         except Exception:  # never let a signal bug block the analysis
             signals_block, style_line, styles = "", "", []
             surface_block, inputs_block, figures_block = "", "", ""
+            blueprint_block, steering_plan = "", False
 
     reference_label = _label(reference, "ghost")
     map_name = subject.get("map_name") or ((insights or {}).get("map") or {}).get("name")
@@ -539,6 +568,8 @@ def analyze(
         surface_text=surface_block,
         inputs_text=inputs_block,
         figures=figures_block,
+        blueprint=blueprint_block,
+        plan=steering_plan,
     )
 
     # Count the analysis only when it uses the server's keys (a visitor's own

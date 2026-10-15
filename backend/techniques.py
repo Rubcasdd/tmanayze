@@ -110,12 +110,33 @@ THIS IS AN ICE STYLE MAP
   lot. Compare steering amount and reversals first.
 """,
     "bobsleigh": """\
-THIS IS A BOBSLEIGH STYLE MAP (the Bobsleigh tag is used for maps built from ice road blocks)
-- Treat it like ice: very low grip, so plan far ahead, steer early and gently, hold
-  a line instead of correcting, and avoid braking. Use the banking and walls of the
-  run to turn rather than the steering. Smooth, repeatable lines beat late
-  corrections; the best sign of progress is fewer steering reversals at the same
-  speed.
+THIS IS A BOBSLEIGH STYLE MAP (the Bobsleigh tag is used for maps built from ice road blocks, usually banked, with walls)
+HOW THE SURFACE BEHAVES
+- Ice has almost no sideways grip: the car keeps going the way it is moving, and the wheel changes where the nose points
+  long before it changes where the car goes. A steering input shows up in the path a fraction of a second later, so
+  inputs have to be made early, before the bend, not in it.
+- Braking does very little on ice and a long brake only unsettles the car; bobsleigh runs are driven with the throttle down
+  and no brake. A lift or a brake the ghost does not make is a loss. Speed drifts do not work.
+- Gear shifts disturb the car a little: hold the wheel steady through them.
+- NEVER recommend a throttle lift or a brake on a bobsleigh or ice map unless the ghost's data shows the ghost doing it there.
+HOW A GOOD RUN LOOKS IN THE DATA
+- The fastest runs hold a steering input for one to three seconds at a moderate value (the blueprint's script shows the
+  typical values, often 0.3-0.7) and then switch to the other side, instead of correcting constantly. A worse run shows more
+  direction changes per 100 m, more time at full lock (1.00), and small corrections right after a big input.
+- On a banked section the bank does the turning: the car climbs the wall on entry, rides it and drops on exit. The wheel
+  should be moderate and steady there; it sets the entry height and the exit. More steering than the references inside a
+  banked corner usually means the car is being forced round it.
+- Hitting a wall scrubs speed (a sudden drop of 20 km/h or more). A line that rides the wall gently without hits keeps the
+  speed; the skills list reports wall-rides and wall hits.
+- Speed carried into a long banked section decides how high the car rides; speed lost in the first half costs the whole section.
+- Ice slides, back slides and bug slides (see the SKILLS list) are natural on this surface; judge them by the speed kept
+  through them against the ghost, not by whether they happen.
+HOW TO COACH IT
+- Use the MAP BLUEPRINT numbers exactly. State advice as a place and a value: "from 700 m steer right to about 0.48 and hold it
+  to 780 m". Never say "steer less" or "steer earlier" without the number or the distance.
+- Where the references disagree by 0.2 or more, say several lines work there and give the median as the safe one.
+- A keyboard-style player or reference has no steering value: say it as a hold ("hold left about 0.8 s from 612 m").
+- The wheel pattern is the lesson: the player can learn the lap as left/right holds, so describe the rhythm.
 """,
     "dirt": """\
 THIS IS A DIRT STYLE MAP

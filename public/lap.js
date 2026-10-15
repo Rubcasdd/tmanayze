@@ -411,3 +411,49 @@ document.addEventListener("click", (e) => {
   GALLERY.sort = b.dataset.sort;
   renderGallery(currentPrimary());
 });
+
+
+// ---------------------------------------------------------------- the steering plan
+
+function planDirWord(d) { return d === "left" ? "left" : d === "right" ? "right" : "straight"; }
+
+function renderPlan(primary) {
+  const area = $("#plan-area");
+  const bp = primary && primary.blueprint;
+  area.hidden = !(bp && bp.series && primary.stats.telemetry);
+  if (area.hidden) return;
+  const tags = ((state.map && state.map.tags) || []).map((t) => String(t).toLowerCase());
+  const bob = tags.some((t) => t.includes("bob"));
+  $("#plan-hint").textContent = `${bob ? "Bobsleigh map: the wheel is the whole lap. " : ""}Built from ${bp.refs} reference ghost${bp.refs === 1 ? "" : "s"}; ${bp.style === "digital" ? "keyboard-style steering, so holds are given in seconds" : "analog steering"}.`;
+
+  const s = bp.series;
+  const xy = (arr) => s.d.map((x, i) => ({ x, y: arr[i] }));
+  const ds = [
+    { label: "lowest", data: xy(s.lo), borderWidth: 0, pointRadius: 0, fill: false, order: 3 },
+    { label: "references", data: xy(s.hi), borderWidth: 0, pointRadius: 0, fill: "-1", backgroundColor: "rgba(91,141,239,0.20)", order: 3 },
+    dashed("median of the references", xy(s.median), "#5b8def", 2),
+    solid("you", xy(s.you), YOU, 2.4),
+  ];
+  const canvas = $("#plan-chart");
+  const chart = lineChart(canvas, ds, { xMin: 0, xMax: s.d[s.d.length - 1], yMin: -1.1, yMax: 1.1, yTitle: "steer", zeroLine: true, bands: [], group: "plan" });
+  state.charts.push(chart);
+
+  const z = $("#plan-zones");
+  z.innerHTML = bp.zones.length
+    ? [...bp.zones].sort((a, b) => b.score - a.score).map((zone, i) => `<button type="button" class="plan-zone" data-from="${zone.from_m}" data-to="${zone.to_m}">
+        <span class="pz-rank">${i + 1}</span>
+        <span class="pz-where">${Math.round(zone.from_m)}–${Math.round(zone.to_m)} m</span>
+        <span class="pz-time ${zone.time_ms > 5 ? "loss" : zone.time_ms < -5 ? "gain" : ""}">${fmtGap(zone.time_ms)}</span>
+        <span class="pz-text">${esc(zone.text.replace(/^[0-9-]+ m: /, ""))}</span></button>`).join("")
+    : `<div class="hint">Your steering follows the references' everywhere within the limits. Nothing to change in the wheel.</div>`;
+  $$(".plan-zone", z).forEach((b) => b.addEventListener("click", () => {
+    const from = +b.dataset.from, to = +b.dataset.to;
+    const same = state.highlight && state.highlight.from === from && state.highlight.to === to;
+    setHighlight(same ? null : { from, to, title: `Steering ${Math.round(from)}–${Math.round(to)} m`, section: null });
+  }));
+
+  const analog = bp.style === "analog";
+  $("#plan-script-body").innerHTML = `<table class="data plan-table"><thead><tr><th>Where</th><th>Wheel</th>${analog ? "<th>Average</th><th>Peak</th>" : ""}<th>For</th><th>They agree</th></tr></thead><tbody>${bp.script.map((r) => `<tr>
+    <td class="mono">${Math.round(r.from_m)}–${Math.round(r.to_m)} m</td><td>${planDirWord(r.dir)}</td>${analog ? `<td class="mono">${r.avg.toFixed(2)}</td><td class="mono">${r.peak.toFixed(2)}</td>` : ""}
+    <td class="mono">${r.dur_s.toFixed(1)} s</td><td class="mono">±${r.agree.toFixed(2)}</td></tr>`).join("")}</tbody></table>`;
+}
