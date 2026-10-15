@@ -23,6 +23,7 @@ const Replay3D = (() => {
     ["orbit", "Orbit", "Circle your car: drag to look around"],
     ["side", "Trackside", "A camera that waits ahead and watches the cars go past"],
     ["top", "Top down", "From above, heading up"],
+    ["free", "Free camera", "Fly it yourself: W A S D, Q and E for down and up, drag to look, + and - for speed, shift to boost"],
   ];
   const DEFAULT_CAM = { mode: "chase", dist: 6.8, height: 2.3, fov: 72, look: 14, smooth: 7, speedFov: true, bank: 0.6, yaw: 0, pitch: 0, orbR: 11, fixed: null, pinned: false };
   const SUN_DIR = [0.5, 0.62, -0.6];
@@ -31,8 +32,8 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    show: { ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
-    rec: null, root: null, shake: 0, flights: { you: [], ghost: [] }, landings: [],
+    show: { tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
+    rec: null, root: null, shake: 0, others: [], keys: {}, free: null, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
   };
 
   // ------------------------------------------------------------------ samples
@@ -470,6 +471,7 @@ const Replay3D = (() => {
     // the cars, their trails, jump arcs, sparks and streaks
     gl.you = buildCar(T, 0xf2f4ff, false); gl.ghost = buildCar(T, 0x5b8def, true);
     scene.add(gl.you.group, gl.ghost.group);
+    gl.others = R.others.map((o) => { const car = buildCar(T, new T.Color(o.color), true); scene.add(car.group); return { car, cs: mk(T), spin: 0 }; });
     gl.ty = makeTrail(T, 0xeef2fb, 70); gl.tg = makeTrail(T, 0x5b8def, 70);
     scene.add(gl.ty.mesh, gl.tg.mesh);
     gl.cy = mk(T); gl.cg = mk(T);
@@ -554,6 +556,12 @@ const Replay3D = (() => {
         V.b.copy(you.p).add(ghost.p).multiplyScalar(0.5);
         look.copy(V.b).addScaledVector(V.up, 0.6); camUp = V.up; break;
       }
+      case "free": {
+        const fr = R.free || (R.free = { pos: cam.position.clone(), yaw: 0, pitch: 0, speed: 25 });
+        pos.copy(fr.pos);
+        V.c.set(Math.sin(fr.yaw) * Math.cos(fr.pitch), Math.sin(fr.pitch), Math.cos(fr.yaw) * Math.cos(fr.pitch));
+        look.copy(pos).add(V.c); camUp = V.up; break;
+      }
       default: {                                              // chase you / chase ghost
         V.c.copy(dir).negate(); rotYaw(V.c, c.yaw);
         pos.copy(focus.p).addScaledVector(V.c, c.dist * Math.cos(c.pitch)).addScaledVector(up, c.height + c.dist * Math.sin(c.pitch));
@@ -569,7 +577,7 @@ const Replay3D = (() => {
       cam.position.x += Math.sin(t * 1.7) * amp; cam.position.y += Math.sin(t * 2.3 + 1) * amp; cam.position.z += Math.cos(t * 1.3) * amp;
     }
     R.shake *= Math.exp(-dt * 5);
-    const fov = c.mode === "side" ? c.fov * 0.6 : c.fov + (c.speedFov ? clamp((focus.speed - 160) / 7, 0, 22) : 0);   // trackside is a longer lens
+    const fov = c.mode === "free" ? c.fov : c.mode === "side" ? c.fov * 0.6 : c.fov + (c.speedFov ? clamp((focus.speed - 160) / 7, 0, 22) : 0);   // trackside is a longer lens
     if (Math.abs(cam.fov - fov) > 0.05) { cam.fov = snap ? fov : cam.fov + (fov - cam.fov) * Math.min(1, dt * 6); cam.updateProjectionMatrix(); }
     if (gl.parts) gl.parts.mat.uniforms.scale.value = gl.renderer.domElement.height / (2 * Math.tan(cam.fov * Math.PI / 360));
   }
@@ -612,6 +620,7 @@ const Replay3D = (() => {
     R.spinY = ((R.spinY || 0) + gl.cy.speed / 3.6 * dt / 0.42) % (Math.PI * 2);
     R.spinG = ((R.spinG || 0) + gl.cg.speed / 3.6 * dt / 0.42) % (Math.PI * 2);
     setCar(gl.you, gl.cy, R.spinY); setCar(gl.ghost, gl.cg, R.spinG);
+    gl.others.forEach((o, i) => { at(R.others[i].A, R.t, o.cs, T); o.spin = ((o.spin || 0) + o.cs.speed / 3.6 * dt / 0.42) % (Math.PI * 2); setCar(o.car, o.cs, o.spin); o.car.group.visible = R.show.ghost; });
     V.sv = V.sv || mk(T); V.sd = V.sd || new T.Vector3();                 // how far sideways the car is travelling (drift angle)
     at(R.you, R.t - 70, V.sv, T); V.sd.copy(gl.cy.p).sub(V.sv.p);
     const mvl = V.sd.length();
@@ -679,40 +688,7 @@ const Replay3D = (() => {
     c.fillStyle = color; c.fillRect(x, y, 3, h);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
-    const L = clamp(-v.steer, 0, 1), Rt = clamp(v.steer, 0, 1), up = clamp(v.gas, 0, 1), dn = clamp(v.brake, 0, 1);
-    const px = x + 14, py = y + 24, tw = 38, th = 46, bw = 22, bh = 22;
-    const base = "rgba(78,80,88,0.78)", line = "rgba(255,255,255,0.95)";
-    // left arrow: tip on the left, base on the right; it fills from the base outwards
-    const lx0 = px, lx1 = px + tw, cy = py + th / 2;
-    c.beginPath(); c.moveTo(lx0, cy); c.lineTo(lx1, py); c.lineTo(lx1, py + th); c.closePath();
-    c.fillStyle = base; c.fill();
-    if (L > 0.001) { c.save(); c.clip(); c.fillStyle = color; c.fillRect(lx1 - tw * L, py, tw * L + 1, th); c.restore(); }
-    c.lineWidth = 2; c.strokeStyle = line; c.lineJoin = "round"; c.stroke();
-    // right arrow: base on the left, tip on the right
-    const rx0 = px + tw + bw + 10, rx1 = rx0 + tw;
-    c.beginPath(); c.moveTo(rx1, cy); c.lineTo(rx0, py); c.lineTo(rx0, py + th); c.closePath();
-    c.fillStyle = base; c.fill();
-    if (Rt > 0.001) { c.save(); c.clip(); c.fillStyle = color; c.fillRect(rx0 - 1, py, tw * Rt + 1, th); c.restore(); }
-    c.lineWidth = 2; c.strokeStyle = line; c.stroke();
-    // up (throttle) and down (brake)
-    const bx = px + tw + 5;
-    const box = (by, k, col, up_) => {
-      c.beginPath(); c.roundRect(bx, by, bw, bh, 4); c.fillStyle = base; c.fill();
-      if (k > 0.001) { c.save(); c.clip(); c.fillStyle = col; const fh = bh * k; c.fillRect(bx, up_ ? by + bh - fh : by, bw, fh); c.restore(); }
-      c.lineWidth = 2; c.strokeStyle = line; c.beginPath(); c.roundRect(bx, by, bw, bh, 4); c.stroke();
-      c.lineWidth = 2; c.strokeStyle = "rgba(255,255,255,0.9)"; c.lineCap = "round"; c.beginPath();
-      const mx = bx + bw / 2, my = by + bh / 2;
-      if (up_) { c.moveTo(mx - 5, my + 2); c.lineTo(mx, my - 3); c.lineTo(mx + 5, my + 2); } else { c.moveTo(mx - 5, my - 2); c.lineTo(mx, my + 3); c.lineTo(mx + 5, my - 2); }
-      c.stroke();
-    };
-    box(py, up, "#2fe3a2", true); box(py + th - bh, dn, "#ff5a73", false);
-    // the numbers
-    const pct = (k) => `${Math.round(k * 100)}%`;
-    c.font = `700 15px "IBM Plex Mono", monospace`; c.fillStyle = "#eef2fb";
-    c.fillText(`STEER ${v.steer < -0.005 ? "L " + pct(L) : v.steer > 0.005 ? "R " + pct(Rt) : "0%"}`, x + 14, y + 92);
-    c.font = `600 12px "IBM Plex Mono", monospace`;
-    c.fillStyle = "#2fe3a2"; c.fillText(`GAS ${pct(up)}`, x + 14, y + 108);
-    c.fillStyle = "#ff5a73"; c.fillText(`BRAKE ${pct(dn)}`, x + 88, y + 108);
+    InputPad.draw(c, x + 14, y + 24, v, color, 1);
     c.fillStyle = "#eef2fb"; c.font = `700 34px "Barlow Condensed", "Arial Narrow", sans-serif`; c.textAlign = "right";
     c.fillText(String(Math.round(v.speed)), x + w - 10, y + 64);
     c.fillStyle = "#7d8aa6"; c.font = `600 10px Barlow, sans-serif`; c.fillText("km/h", x + w - 10, y + 79);
@@ -767,8 +743,51 @@ const Replay3D = (() => {
     const m = R.map;
     c.drawImage(m.cv, x0, y0, mw, mh);
     const dot = (car, col, r) => { c.fillStyle = col; c.beginPath(); c.arc(x0 + m.ox + (car.p.x - m.a) * m.sc, y0 + m.oz + (car.p.z - m.d) * m.sc, r, 0, 7); c.fill(); };
-    if (R.show.ghost) dot(gl.cg, "#5b8def", 3.5);
+    if (R.show.ghost) { gl.others.forEach((o, i) => dot(o.cs, R.others[i].color, 3)); dot(gl.cg, "#5b8def", 3.5); }
     dot(gl.cy, "#fff", 4.5);
+  }
+
+  // the live timing tower: everyone on the track ranked by how far they have got, with the gap to the leader in seconds
+  const timeAtCd = (A, cdv) => {
+    const n = A.n;
+    if (cdv <= 0) return A.t[0];
+    if (cdv >= A.cd[n - 1]) return A.t[n - 1];
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (A.cd[m] <= cdv) lo = m; else hi = m; }
+    const span = A.cd[hi] - A.cd[lo];
+    return A.t[lo] + (span > 0 ? (cdv - A.cd[lo]) / span : 0) * (A.t[hi] - A.t[lo]);
+  };
+
+  function tower() {
+    const T = R.THREE, V0 = V.tw || (V.tw = mk(T));
+    const ds = [{ name: "You", color: "#ffffff", A: R.you, you: true }, { name: R.ghostName, color: "#5b8def", A: R.ghost }, ...R.others];
+    for (const d of ds) { d.fin = R.t >= d.A.t[d.A.n - 1]; d.cdv = at(d.A, R.t, V0, T).cd; d.finT = d.A.t[d.A.n - 1]; }
+    ds.sort((a, b) => (a.fin && b.fin ? a.finT - b.finT : a.fin ? -1 : b.fin ? 1 : b.cdv - a.cdv));
+    const lead = ds[0], leadT = lead.fin ? lead.finT : R.t;
+    ds.forEach((d, i) => {
+      if (d.fin) d.text = mmss(d.finT);
+      else if (i === 0) d.text = "LEADER";
+      else d.text = "+" + ((timeAtCd(d.A, lead.cdv) - leadT) / 1000).toFixed(3);
+    });
+    return ds;
+  }
+
+  function drawTower(c) {
+    if (!R.show.tower) return;
+    const rows = tower(), x = 12, y = 46, rh = 20;
+    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, 196, 8 + rows.length * rh);
+    rows.forEach((r, i) => {
+      const yy = y + 4 + i * rh;
+      if (r.you) { c.fillStyle = "rgba(143,123,255,0.28)"; c.fillRect(x + 2, yy, 192, rh - 1); }
+      c.textBaseline = "middle"; c.textAlign = "left";
+      c.fillStyle = "#b4bfd6"; c.font = `700 13px "Barlow Condensed", sans-serif`; c.fillText(String(i + 1), x + 8, yy + rh / 2);
+      c.fillStyle = r.color; c.fillRect(x + 24, yy + 4, 4, rh - 9);
+      c.fillStyle = r.you ? "#fff" : "#d6dcef"; c.font = `${r.you ? 700 : 600} 13px Barlow, sans-serif`;
+      let nm = String(r.name); while (nm.length > 3 && c.measureText(nm).width > 92) nm = nm.slice(0, -2);
+      c.fillText(nm, x + 34, yy + rh / 2);
+      c.textAlign = "right"; c.fillStyle = r.fin ? "#ffc247" : "#eef2fb"; c.font = `600 12px "IBM Plex Mono", monospace`;
+      c.fillText(r.text, x + 190, yy + rh / 2);
+    });
   }
 
   function drawHud() {
@@ -781,14 +800,19 @@ const Replay3D = (() => {
     const d = delta(R.t);
     pill(c, w / 2 - 78, 12, 156, 32, "rgba(12,14,20,0.88)", "#fff", mmss(R.t), `700 22px "Barlow Condensed", "Arial Narrow", sans-serif`);
     pill(c, w / 2 - 78, 46, 156, 28, d > 0 ? "#d9363e" : "#2f6df0", "#fff", sgn(d), `700 19px "Barlow Condensed", "Arial Narrow", sans-serif`);
+    // on pace for: the ghost's finish plus today's gap, like the Predictor plugin
+    pill(c, w / 2 - 78, 76, 156, 18, "rgba(12,14,20,0.8)", "#b4bfd6", `ON PACE FOR ${mmss(R.ghost.t[R.ghost.n - 1] + d)}`, `600 12px Barlow, sans-serif`);
     if (R.cps) {
       const win = 2500 * clamp(R.rate, 0.1, 1);
       const hit = [...R.cps].reverse().find((x) => R.t >= x.t && R.t < x.t + win);
       if (hit) {
-        pill(c, w / 2 - 78, 80, 156, 26, "rgba(12,14,20,0.88)", "#ffc247", `${hit.name}  ${mmss(hit.t)}`, `700 16px "Barlow Condensed", sans-serif`);
-        pill(c, w / 2 - 78, 108, 156, 28, hit.d > 0 ? "#d9363e" : "#2f6df0", "#fff", sgn(hit.d), `700 19px "Barlow Condensed", sans-serif`);
+        pill(c, w / 2 - 78, 98, 156, 26, "rgba(12,14,20,0.88)", "#ffc247", `${hit.name}  ${mmss(hit.t)}`, `700 16px "Barlow Condensed", sans-serif`);
+        pill(c, w / 2 - 78, 126, 156, 28, hit.d > 0 ? "#d9363e" : "#2f6df0", "#fff", sgn(hit.d), `700 19px "Barlow Condensed", sans-serif`);
+        const dv = hit.sy - hit.sg;
+        pill(c, w / 2 - 78, 156, 156, 22, "rgba(12,14,20,0.88)", dv < 0 ? "#ff8a9a" : "#7fe8c0", `${hit.sy} km/h  (${dv >= 0 ? "+" : "-"}${Math.abs(dv)})`, `700 14px "Barlow Condensed", sans-serif`);
       }
     }
+    drawTower(c);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     const m = MODES.find((x) => x[0] === R.cam.mode);
     c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(12, 12, 150, 24);
@@ -983,7 +1007,25 @@ const Replay3D = (() => {
       if (R.clip && R.t >= R.clip.end) { R.clip = null; R.playing = false; setRate(1); }
       checkShots(false);
     }
+    moveFree(dt);
     render(R.playing ? dt : 0, !R.playing);
+  }
+
+  // the free camera: W A S D to fly, Q down, E up, shift to boost, + and - change the speed
+  function moveFree(dt) {
+    if (R.cam.mode !== "free" || !R.free || !dt) return;
+    const k = R.keys, fr = R.free, T = R.THREE;
+    V.fm = V.fm || new T.Vector3(); V.ff = V.ff || new T.Vector3(); V.fr = V.fr || new T.Vector3();
+    V.ff.set(Math.sin(fr.yaw) * Math.cos(fr.pitch), Math.sin(fr.pitch), Math.cos(fr.yaw) * Math.cos(fr.pitch));
+    V.fr.set(-Math.cos(fr.yaw), 0, Math.sin(fr.yaw));                       // forward x up
+    V.fm.set(0, 0, 0);
+    if (k.w) V.fm.add(V.ff); if (k.s) V.fm.sub(V.ff); if (k.d) V.fm.add(V.fr); if (k.a) V.fm.sub(V.fr); if (k.e) V.fm.y += 1; if (k.q) V.fm.y -= 1;
+    if (V.fm.lengthSq() > 0) fr.pos.addScaledVector(V.fm.normalize(), fr.speed * (k.shift ? 3 : 1) * dt);
+  }
+
+  function startFree() {
+    const T = R.THREE, d = gl.camera.getWorldDirection(new T.Vector3());
+    R.free = { pos: gl.camera.position.clone(), yaw: Math.atan2(d.x, d.z), pitch: Math.asin(clamp(d.y, -1, 1)), speed: (R.free && R.free.speed) || 25 };
   }
 
   function setRate(r) { R.rate = r; updateSpeedUi(); }
@@ -1067,7 +1109,7 @@ const Replay3D = (() => {
             ${chk("rp-ghostvis", "Ghost", true)}${chk("rp-fxon", "Spray, sparks, streaks", true)}
             ${chk("rp-trails", "Trails", true)}${chk("rp-arcs", "Jump arcs", true)}
             ${chk("rp-gates", "Checkpoints", true)}${chk("rp-shadows", "Shadows", true)}
-            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-pad", "Arrow input display", true)}
+            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-pad", "Arrow input display", true)}${chk("rp-tower", "Timing tower", true)}
           </div>
           <button type="button" class="btn quiet rp-drop" title="Pin a trackside camera here so the cars drive past it">Pin a trackside camera here</button>
         </section>
@@ -1100,13 +1142,13 @@ const Replay3D = (() => {
     q(".rp-bk").addEventListener("click", (e) => stepBy(e.shiftKey ? -10 : -50));
     q(".rp-fw").addEventListener("click", (e) => stepBy(e.shiftKey ? 10 : 50));
     r.querySelectorAll(".rp-rate button").forEach((b) => b.addEventListener("click", () => setRate(+b.dataset.r)));
-    r.querySelectorAll(".rp-modes button").forEach((b) => b.addEventListener("click", () => { cutsOff(); R.cam.mode = b.dataset.m; if (b.dataset.m === "side") { R.cam.fixed = null; R.cam.pinned = false; } R.cam.yaw = 0; R.cam.pitch = 0; render(0, true); }));
+    r.querySelectorAll(".rp-modes button").forEach((b) => b.addEventListener("click", () => { cutsOff(); if (b.dataset.m === "free") startFree(); R.cam.mode = b.dataset.m; if (b.dataset.m === "side") { R.cam.fixed = null; R.cam.pinned = false; } R.cam.yaw = 0; R.cam.pitch = 0; render(0, true); }));
     const bind = (cls, key, alt) => q(cls).addEventListener("input", (e) => { cutsOff(); R.cam[alt && (R.cam.mode === "orbit" || R.cam.mode === "top") ? alt : key] = +e.target.value; render(0, true); });
     bind(".rp-dist", "dist", "orbR"); bind(".rp-height", "height"); bind(".rp-fov", "fov"); bind(".rp-look", "look"); bind(".rp-smooth", "smooth");
     const tog = (cls, fn) => q(cls).addEventListener("change", (e) => { fn(e.target.checked); render(0, true); });
     tog(".rp-sfov", (v) => (R.cam.speedFov = v)); tog(".rp-shake", (v) => (R.show.shake = v)); tog(".rp-ghostvis", (v) => (R.show.ghost = v));
     tog(".rp-fxon", (v) => (R.show.fx = v)); tog(".rp-trails", (v) => (R.show.trails = v)); tog(".rp-arcs", (v) => (R.show.arcs = v));
-    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => (R.show.pad = v));
+    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => (R.show.pad = v)); tog(".rp-tower", (v) => (R.show.tower = v));
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
     q(".rp-cuts").addEventListener("change", (e) => { R.cuts = e.target.checked; R.shotIdx = -2; checkShots(true); });
     q(".rp-addshot").addEventListener("click", addShot);
@@ -1126,7 +1168,8 @@ const Replay3D = (() => {
     st.addEventListener("pointermove", (ev) => {
       if (!look) return;
       cutsOff();
-      R.cam.yaw -= (ev.clientX - look.x) * 0.006; R.cam.pitch = clamp(R.cam.pitch + (ev.clientY - look.y) * 0.005, -0.5, 1.3);
+      if (R.cam.mode === "free" && R.free) { R.free.yaw -= (ev.clientX - look.x) * 0.005; R.free.pitch = clamp(R.free.pitch - (ev.clientY - look.y) * 0.005, -1.5, 1.5); }
+      else { R.cam.yaw -= (ev.clientX - look.x) * 0.006; R.cam.pitch = clamp(R.cam.pitch + (ev.clientY - look.y) * 0.005, -0.5, 1.3); }
       look = { x: ev.clientX, y: ev.clientY };
     });
     st.addEventListener("pointerup", () => (look = null));
@@ -1134,7 +1177,8 @@ const Replay3D = (() => {
     st.addEventListener("wheel", (ev) => {
       ev.preventDefault();
       const f = Math.exp(ev.deltaY * 0.0012);
-      if (R.cam.mode === "orbit" || R.cam.mode === "top") R.cam.orbR = clamp(R.cam.orbR * f, 3, 120); else R.cam.dist = clamp(R.cam.dist * f, 3, 60);
+      if (R.cam.mode === "free" && R.free) { const T = R.THREE, d = gl.camera.getWorldDirection(new T.Vector3()); R.free.pos.addScaledVector(d, -ev.deltaY * 0.06 * Math.max(1, R.free.speed / 25)); }
+      else if (R.cam.mode === "orbit" || R.cam.mode === "top") R.cam.orbR = clamp(R.cam.orbR * f, 3, 120); else R.cam.dist = clamp(R.cam.dist * f, 3, 60);
     }, { passive: false });
     if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => resize()).observe(st);
   }
@@ -1154,11 +1198,18 @@ const Replay3D = (() => {
     else if (e.key === "." || e.key === ">") stepBy(e.shiftKey ? 10 : 50);
     else if (e.key === "ArrowRight") { e.preventDefault(); seek(R.t + (e.shiftKey ? 5000 : 1000)); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); seek(R.t - (e.shiftKey ? 5000 : 1000)); }
+    else if (e.key === "Home") { e.preventDefault(); seek(0); }
+    else if (e.key === "End") { e.preventDefault(); seek(R.tEnd); }
+    else if ((e.key === "+" || e.key === "=" ) && R.free) R.free.speed = Math.min(400, R.free.speed * 1.3);
+    else if (e.key === "-" && R.free) R.free.speed = Math.max(2, R.free.speed / 1.3);
     else if (e.key === "[" || e.key === "]") {
       const rates = [0.05, 0.1, 0.25, 0.5, 1, 2], i = rates.indexOf(R.rate);
       setRate(rates[clamp((i < 0 ? 4 : i) + (e.key === "]" ? 1 : -1), 0, rates.length - 1)]);
     }
   });
+
+  window.addEventListener("keydown", (e) => { if (R.visible && R.cam.mode === "free" && !/^(INPUT|SELECT|TEXTAREA)$/.test((e.target.tagName || ""))) { const k = e.key.toLowerCase(); if ("wasdqe".includes(k) && k.length === 1) R.keys[k] = true; if (e.key === "Shift") R.keys.shift = true; } });
+  window.addEventListener("keyup", (e) => { const k = e.key.toLowerCase(); if ("wasdqe".includes(k) && k.length === 1) R.keys[k] = false; if (e.key === "Shift") R.keys.shift = false; });
 
   // ------------------------------------------------------------------ public
 
@@ -1170,7 +1221,8 @@ const Replay3D = (() => {
     if (!primary || !primary.points || primary.points.length < 4) { root.innerHTML = `<div class="hint">The replay needs two runs with driving data. Pick your run and a ghost first.</div>`; R.loaded = false; return; }
     if (typeof THREE === "undefined") { root.innerHTML = `<div class="hint">The 3D replay needs three.js, which loads from the internet. Check your connection and reload.</div>`; return; }
     R.THREE = THREE;
-    const key = [state.subjectId, state.primaryRefId].join("|");
+    const others = sortedGhostIds().filter((id) => id !== state.primaryRefId).slice(0, 4);
+    const key = [state.subjectId, state.primaryRefId, ...others].join("|");
     if (R.loaded && R.key === key) { resize(); return; }
     if (R.loading) return;
     R.loading = true; R.loaded = false;
@@ -1178,10 +1230,13 @@ const Replay3D = (() => {
     root.innerHTML = template();
     wire();
     try {
-      const runs = await Store.getRuns([state.subjectId, state.primaryRefId]);
+      const runs = await Store.getRuns([state.subjectId, state.primaryRefId, ...others]);
       const me = runs.find((x) => x.id === state.subjectId), ref = runs.find((x) => x.id === state.primaryRefId);
       if (!me || !ref || !me.samples.length || !ref.samples.length) throw new Error("no driving data");
       R.you = prep(me.samples); R.ghost = prep(ref.samples);
+      R.ghostName = runLabel(state.primaryRefId);
+      R.others = others.map((id) => runs.find((x) => x.id === id)).filter((r) => r && r.samples && r.samples.length > 20)
+        .map((r) => ({ id: r.id, name: runLabel(r.id), color: ghostColor(r.id), A: prep(r.samples) }));
       R.tEnd = Math.max(R.you.t[R.you.n - 1], 1);
       R.flights = { you: (primary.subject_flights || []).filter((f) => f.end_t_ms > f.t_ms), ghost: (primary.reference_flights || []).filter((f) => f.end_t_ms > f.t_ms) };
       R.landings = (primary.driving && primary.driving.subject && primary.driving.subject.landings) || [];
@@ -1196,7 +1251,9 @@ const Replay3D = (() => {
       gl.camera = new THREE.PerspectiveCamera(72, 16 / 9, 0.3, 9000);
       buildWorld(R.primary);
       if (me.checkpoints && ref.checkpoints && me.checkpoints.length === ref.checkpoints.length) {
-        R.cps = me.checkpoints.map((t, i) => ({ t, d: t - ref.checkpoints[i], name: i === me.checkpoints.length - 1 ? "Finish" : `CP ${i + 1}` }));
+        const o1 = mk(THREE), o2 = mk(THREE);
+        R.cps = me.checkpoints.map((t, i) => ({ t, d: t - ref.checkpoints[i], name: i === me.checkpoints.length - 1 ? "Finish" : `CP ${i + 1}`,
+          sy: Math.round(at(R.you, t, o1, THREE).speed), sg: Math.round(at(R.ghost, ref.checkpoints[i], o2, THREE).speed) }));
       } else R.cps = [];
       R.key = key; R.loaded = true; R.t = 0; R.prevT = 0; R.playing = false; R.cam = { ...DEFAULT_CAM }; R.rate = 1; R.shotIdx = -1; R.clip = null; R.cuts = true;
       loadShots();
@@ -1219,6 +1276,7 @@ const Replay3D = (() => {
       const T = R.THREE, a = at(R.you, R.t, mk(T), T), b = at(R.you, R.t + 100, mk(T), T), mv = b.p.clone().sub(a.p).normalize();
       return { dot: a.f.dot(mv), speed: a.speed, steer: a.steer, turn: new T.Vector3().crossVectors(a.f, b.f).dot(a.u), flightsYou: R.flights.you.map((f) => [f.t_ms, f.end_t_ms]) };
     },
+    towerRows: () => (R.loaded ? tower().map((r) => [r.name, r.text]) : []),
     api: { seek, play, pause, setRate, autoDirect, addShot, stepBy, playClip, cam: () => R.cam },
   };
 })();

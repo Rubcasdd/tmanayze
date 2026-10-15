@@ -18,7 +18,7 @@ const Cockpit = (() => {
 
   const S = {
     primary: null, pts: [], rt: [], tEnd: 0, t: 0, playing: false, last: 0, raf: 0, speed: 1, mode: "position",
-    voice: false, spoken: new Set(), notes: [], radar: null, maxSpeed: 400, bbox: null, moments: [], dirty: true,
+    voice: false, pad: true, spoken: new Set(), notes: [], radar: null, maxSpeed: 400, bbox: null, moments: [], dirty: true,
   };
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -129,6 +129,7 @@ const Cockpit = (() => {
         </div>
         <label class="tv-check"><input type="checkbox" class="ck-voice" /> Co-driver voice</label>
         <label class="tv-check"><input type="checkbox" class="ck-engine" /> Engine sound</label>
+        <label class="tv-check" title="The game's arrow input display, with exact percentages"><input type="checkbox" class="ck-pad" checked /> Arrow display</label>
         <label class="tv-check" title="Play a moment on repeat so you can study it"><input type="checkbox" class="ck-loop" /> Loop a moment</label>
         <button type="button" class="btn quiet ck-rec" title="Record the replay as a video you can share">&#9679; Record clip</button>
         <span class="ck-keys">space play · ← → 1 s (shift 5 s) · , . one frame</span>
@@ -195,6 +196,7 @@ const Cockpit = (() => {
       draw();
     }));
     q(".ck-engine").addEventListener("change", (e) => Engine.toggle(e.target.checked));
+    q(".ck-pad").addEventListener("change", (e) => { S.pad = e.target.checked; draw(); });
     q(".ck-rec").addEventListener("click", () => (S.rec ? stopRecord() : startRecord()));
     const strip = q(".ck-strip");
     const seek = (ev) => {
@@ -302,7 +304,7 @@ const Cockpit = (() => {
     const back = frame(Math.max(0, S.t - 1000)).delta;
     const rate = (d - back) / Math.max(0.2, Math.min(1, S.t / 1000));        // ms lost per second of driving
     const trend = Math.abs(rate) < 6 ? "holding the gap" : rate > 0 ? `losing ${(rate / 1000).toFixed(2)} s every second` : `gaining ${(-rate / 1000).toFixed(2)} s every second`;
-    root.querySelector(".ck-gaplabel").innerHTML = `${d > 8 ? "behind the ghost" : d < -8 ? "ahead of the ghost" : "level with the ghost"}<br><span class="${Math.abs(rate) < 6 ? "" : rate > 0 ? "loss" : "gain"}">${trend}</span>`;
+    root.querySelector(".ck-gaplabel").innerHTML = `${d > 8 ? "behind the ghost" : d < -8 ? "ahead of the ghost" : "level with the ghost"}<br><span class="${Math.abs(rate) < 6 ? "" : rate > 0 ? "loss" : "gain"}">${trend}</span><br><span class="ck-pace">on pace for ${fmtTime(Math.round(S.rt[S.rt.length - 1] + d))}</span>`;
     const dashes = root.querySelectorAll(".ck-dash");
     drawDash(dashes[0], fr.y, YOU, "you");
     drawDash(dashes[1], fr.g, GHOST, "ghost");
@@ -347,6 +349,8 @@ const Cockpit = (() => {
     c.fillText(String(Math.round(v.speed)), cx, cy + R * 0.22);
     c.fillStyle = "#7d8aa6"; c.font = `600 ${Math.round(R * 0.2)}px Barlow, sans-serif`;
     c.fillText("km/h", cx, cy + R * 0.58);
+    if (S.pad) InputPad.draw(c, cx + R + 38, h * 0.2 + 16, v, color, clamp((w - (cx + R + 38) - 8) / 136, 0.6, 1.3));
+    if (!S.pad) {
     // the wheel, turning with the input
     const wr = Math.min(w * 0.1, h * 0.2), wx = cx + R + 22 + wr + 14, wy = h * 0.42;
     c.save(); c.translate(wx, wy); c.rotate(v.steer * WHEEL_RAD);
@@ -358,6 +362,7 @@ const Cockpit = (() => {
     c.restore();
     c.fillStyle = "#b4bfd6"; c.font = `600 13px "IBM Plex Mono", monospace`;
     c.fillText(`${v.steer >= 0 ? "R" : "L"} ${Math.abs(v.steer).toFixed(2)}`, wx, wy + wr + 24);
+    }
     // what the driver is doing right now
     const st = v.brake > 0.1 ? ["BRAKING", LOSS] : Math.abs(v.steer) > 0.95 ? ["FULL LOCK", WARN] : v.gas < 0.1 ? ["COASTING", WARN] : v.gas > 0.95 ? ["FULL THROTTLE", GAIN] : ["PART THROTTLE", "#b4bfd6"];
     c.font = `700 11px Barlow, sans-serif`;
@@ -365,6 +370,7 @@ const Cockpit = (() => {
     c.fillStyle = "rgba(10,14,23,0.8)"; c.strokeStyle = st[1]; c.lineWidth = 1.5;
     c.beginPath(); c.roundRect(w - tw - 6, 4, tw, 20, 10); c.fill(); c.stroke();
     c.fillStyle = st[1]; c.textAlign = "center"; c.fillText(st[0], w - tw / 2 - 6, 18);
+    if (!S.pad) {
     // pedals on the right
     const pw = Math.min(26, w * 0.07), px = w - pw * 2 - 22, ph = h * 0.62, py = h * 0.2;
     const pedal = (x, val, col, label) => {
@@ -376,6 +382,7 @@ const Cockpit = (() => {
     };
     pedal(px, clamp(v.brake, 0, 1), LOSS, "BRAKE");
     pedal(px + pw + 10, clamp(v.gas, 0, 1), GAIN, "GAS");
+    }
   }
 
   // the gap over the whole lap: a scrubber
@@ -608,7 +615,10 @@ const Cockpit = (() => {
     const me = state.runs.find((r) => r.id === state.subjectId);
     const ref = state.runs.find((r) => r.id === state.primaryRefId);
     if (!me || !ref || !Array.isArray(me.checkpoints) || !Array.isArray(ref.checkpoints) || me.checkpoints.length !== ref.checkpoints.length) return null;
-    return me.checkpoints.map((t, i) => ({ t, d: t - ref.checkpoints[i], name: i === me.checkpoints.length - 1 ? "Finish" : `CP ${i + 1}` }));
+    return me.checkpoints.map((t, i) => {
+      const [k] = locate(S.ts, t), p = S.pts[Math.min(S.pts.length - 1, k)];     // the speeds at that spot, yours and the ghost's
+      return { t, d: t - ref.checkpoints[i], name: i === me.checkpoints.length - 1 ? "Finish" : `CP ${i + 1}`, dv: Math.round(p.subject_speed - p.reference_speed) };
+    });
   }
 
   function drawSplits(t) {
@@ -622,7 +632,7 @@ const Cockpit = (() => {
     box.dataset.k = key;
     box.innerHTML = data.map((x, i) => {
       const on = x.t <= t;
-      return `<div class="ck-split${on ? " on" : ""}${on && i === done.length - 1 && fresh ? " flash" : ""}"><span>${x.name}</span><b class="mono ${on ? (x.d > 4 ? "loss" : x.d < -4 ? "gain" : "") : ""}">${on ? fmtGap(x.d) : "–"}</b></div>`;
+      return `<div class="ck-split${on ? " on" : ""}${on && i === done.length - 1 && fresh ? " flash" : ""}"><span>${x.name}</span><b class="mono ${on ? (x.d > 4 ? "loss" : x.d < -4 ? "gain" : "") : ""}">${on ? fmtGap(x.d) : "–"}</b>${on ? `<i class="${x.dv < 0 ? "loss" : "gain"}">${x.dv >= 0 ? "+" : "−"}${Math.abs(x.dv)} km/h</i>` : ""}</div>`;
     }).join("");
     if (fresh && S.voice && S.playing) {
       const x = done[done.length - 1];
@@ -794,7 +804,9 @@ const Cockpit = (() => {
 
   window.addEventListener("keydown", (e) => {
     if (!root || root.closest("[hidden]") || !S.pts.length || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target.tagName || ""))) return;
-    if (e.key === " ") { e.preventDefault(); S.playing ? pause() : play(); }
+    if (e.key === "Home") { e.preventDefault(); S.t = 0; S.spoken = new Set(); draw(); }
+    else if (e.key === "End") { e.preventDefault(); S.t = S.tEnd; draw(); }
+    else if (e.key === " ") { e.preventDefault(); S.playing ? pause() : play(); }
     else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
       e.preventDefault();
       S.t = clamp(S.t + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 5000 : 1000), 0, S.tEnd);
