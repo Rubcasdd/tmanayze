@@ -768,3 +768,31 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .lesson ol { margin: 0 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
 .lesson-drill, .lesson-nums { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
 .lesson-nums b:first-child { color: var(--ink); }
+
+
+/* trick playbook */
+.pb-group { font-size: 18px; margin: 22px 0 10px; color: var(--ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
+.pb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; align-items: start; }
+.trick { background: linear-gradient(160deg, #141d33, #101728); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; }
+.trick.off { opacity: 0.62; border-top-color: var(--line-strong); }
+.trick header { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.trick h3 { font-size: 20px; }
+.trick-badges { display: flex; gap: 6px; }
+.badge-use, .badge-adv { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line-strong); text-transform: uppercase; letter-spacing: 0.06em; }
+.badge-use.yes { color: var(--gain); border-color: rgba(47, 227, 162, 0.5); }
+.badge-adv { color: var(--warn); border-color: rgba(255, 194, 71, 0.5); }
+.trick-why { color: var(--ink-2); font-size: 14px; margin: 6px 0 10px; }
+.trick-steps { margin: 0 0 10px; padding-left: 22px; display: flex; flex-direction: column; gap: 5px; }
+.trick-feel, .trick-mistakes, .trick-drill { margin: 4px 0; font-size: 13.5px; color: var(--ink-2); }
+.trick-feel b, .trick-mistakes b, .trick-drill b { color: var(--ink); }
+.trick-places { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.trick-places > b { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.trick-place { display: grid; text-align: left; font: inherit; color: inherit; cursor: pointer; background: rgba(10, 14, 23, 0.55); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 7px 10px; gap: 1px; }
+.trick-place:hover { border-color: var(--ink-2); border-left-color: var(--accent); }
+.tp-where { font-weight: 700; }
+.trick-place em { color: var(--muted); font-style: normal; font-size: 12px; }
+.tp-detail { color: var(--ink-2); font-size: 13px; }
+.pz-where small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.pz-where em { display: block; color: var(--muted); font-style: normal; font-size: 12px; font-weight: 400; }
+
+.trick-group { color: var(--muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: auto; }

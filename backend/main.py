@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import coach, focus, insights as insights_mod, keypool, legacy, mx_client, net, nim_client, ratelimit, surface as surface_mod, tmio_client
-from . import blueprint as blueprint_mod, checkpoints as checkpoints_mod, coach_knowledge, driving as driving_mod, shares, signals as signals_mod, skills as skills_mod, techniques
+from . import blueprint as blueprint_mod, checkpoints as checkpoints_mod, coach_knowledge, landmarks as landmarks_mod, playbook as playbook_mod, driving as driving_mod, shares, signals as signals_mod, skills as skills_mod, techniques
 from .compare import compare_runs
 from .gbx_parser import GbxParseError, parse_gbx_bytes
 
@@ -136,6 +136,7 @@ class RunPayload(BaseModel):
 
 
 class CompareRequest(BaseModel):
+    tags: list[str] = Field(default_factory=list, max_length=40)  # the map's tags, to know what kind of map it is
     subject: RunPayload
     references: list[RunPayload] = Field(max_length=6)
 
@@ -148,6 +149,38 @@ class AnalyzeRequest(BaseModel):
     previous: dict | None = None
     depth: str | None = None
     others: list[RunPayload] = Field(default_factory=list, max_length=3)  # more ghosts: the blueprint uses all of them
+
+
+def _make_playbook(subject: dict, reference: dict, corners: list[dict], points: list[dict], lm, bp: dict | None,
+                   tags: list[str], subject_driving: dict | None, subject_flights: list[dict], ref_flights: list[dict]) -> list[dict]:
+    """The prepared tricks for this map, with where to use them. Never raises: a card list is only ever an extra."""
+    try:
+        samples = subject.get("samples") or []
+        labels = _ground_labels(subject)
+        share = surface_mod.summarize(labels) if labels else {}
+        dist = signals_mod._cumulative_distance(samples) if len(samples) >= 20 else []
+        corner_ground = surface_mod.corner_surfaces(labels, dist, corners) if labels and dist else {}
+        s = signals_mod.analyze_run(samples)
+        g = signals_mod.analyze_run(reference.get("samples") or [])
+        _, _, ghost_only_taps = signals_mod.pair_items(s["taps"], g["taps"])
+        _, player_only_lifts, _ = signals_mod.pair_items(s["lifts"], g["lifts"])
+        styles = [st for st, _ in techniques.detect_styles(tags, None, share)]
+        d = subject_driving or {}
+        return playbook_mod.build(
+            styles=styles, corners=corners, corner_ground=corner_ground, ground_share=share,
+            flights_you=subject_flights, flights_ref=ref_flights, landings=d.get("landings") or [], walls=d.get("inverted") or [],
+            ghost_taps=ghost_only_taps, player_lifts=[x for x in player_only_lifts if x["duration_s"] >= 0.25],
+            points=points, lm=lm, blueprint=bp,
+        )
+    except Exception:
+        return []
+
+
+def reference_for(body, ref_id: str | None) -> dict:
+    for r in body.references:
+        if r.id == ref_id:
+            return r.as_run()
+    return {}
 
 
 def _label(run: dict, fallback: str) -> str:
@@ -377,13 +410,20 @@ def compare(body: CompareRequest):
     try:  # the steering of the references, metre by metre, against the player's
         first = body.references[0].id if body.references else None
         analog = str(out[first]["stats"].get("reference_input_style", "analog")).startswith("analog") if first else True
-        bp = blueprint_mod.build(points_by_ref, first, analog) if first else None
+        lm = landmarks_mod.Landmarks(cp_info, out[first]["corners"], points_by_ref[first], out[first]["checkpoints"]) if first else None
+        bp = blueprint_mod.build(points_by_ref, first, analog, lm) if first else None
     except Exception:
-        bp = None
+        bp, lm, first = None, None, None
     if bp:
         bp["lessons"] = blueprint_mod.lessons(bp, True)
+    playbook = (
+        _make_playbook(subject, reference_for(body, first), out[first]["corners"], points_by_ref[first], lm, bp, body.tags,
+                       subject_driving, subject_flights, flights_by_ref.get(first, []))
+        if first else []
+    )
     for entry in out.values():
         entry["blueprint"] = bp
+        entry["playbook"] = playbook
     try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
         moves = driving_mod.field_moves(points_by_ref, subject_flights, flights_by_ref)
     except Exception:
@@ -453,6 +493,9 @@ def analyze(
     found = focus.find_focus(result.stats, result.corners, result.sections)
     map_uid = subject.get("map_uid") or reference.get("map_uid")
     blueprint_data = None
+    lm = None
+    lessons_list: list[dict] = []
+    how_to_cards: list[dict] = []
     field_text = ""
     if result.stats.get("telemetry"):
         try:
@@ -461,7 +504,9 @@ def analyze(
                 o = compare_runs(subject, other.as_run(), checkpoints_mod.section_bounds(cp_info))
                 if o.stats.get("telemetry"):
                     pts[f"other{k}"] = o.points
-            blueprint_data = blueprint_mod.build(pts, "main", str(result.stats.get("reference_input_style", "analog")).startswith("analog"))
+            analyze_rows = checkpoints_mod.rows(cp_info, reference.get("checkpoints")) if cp_info else []
+            lm = landmarks_mod.Landmarks(cp_info, result.corners, result.points, analyze_rows)
+            blueprint_data = blueprint_mod.build(pts, "main", str(result.stats.get("reference_input_style", "analog")).startswith("analog"), lm)
             field_text = ""
             try:  # what the fastest ghosts do that the player doesn't: jump lines, air-brakes, different lines
                 flights = {"main": signals_mod.public_flights(reference.get("samples") or [])}
@@ -550,14 +595,26 @@ def analyze(
             signals_block += "\n" + signals_mod.findings_text(tech_findings, styles)
             # on ice and bobsleigh maps the whole lap is steering: give the coach every corner's script and the full blueprint
             icy = any(s in ("bobsleigh", "ice") for s, _ in styles)
+            steering_plan = icy or body.depth in ("deep", "detailed")
             if icy:
                 inputs_block = coach.input_scripts_text(result.corners, [c["corner_index"] for c in result.corners][:16])
             if blueprint_data:
                 blueprint_block = blueprint_mod.blueprint_text(blueprint_data, deep=icy or body.depth == "deep")
-                blueprint_block += "\n" + blueprint_mod.lessons_text(blueprint_mod.lessons(blueprint_data, icy))
+                lessons_list = blueprint_mod.lessons(blueprint_data, icy)
+                blueprint_block += "\n" + blueprint_mod.lessons_text(lessons_list)
                 if field_text:
                     blueprint_block += "\n" + field_text
-                steering_plan = icy or body.depth in ("deep", "detailed")
+            try:
+                cards = _make_playbook(
+                    subject, reference, result.corners, result.points, lm, blueprint_data, [t for t in (((insights or {}).get("map") or {}).get("tags") or [])],
+                    driving_mod.analyze(samples), signals_mod.public_flights(samples), signals_mod.public_flights(reference.get("samples") or []))
+                pb = playbook_mod.playbook_text(cards)
+                how_to_cards = cards
+                if pb:
+                    blueprint_block += "\n" + pb
+                    steering_plan = steering_plan or bool(cards)
+            except Exception:
+                pass
         except Exception:  # never let a signal bug block the analysis
             signals_block, style_line, styles = "", "", []
             surface_block, inputs_block, figures_block = "", "", ""
@@ -609,6 +666,9 @@ def analyze(
         raise HTTPException(502, str(e)) from e
 
     text = coach.clean_report(text)
+    if steering_plan:
+        # the how-to lessons are written from the measured numbers, never by the model (it garbles them)
+        text = playbook_mod.with_how_to(text, lessons_list, how_to_cards)
     quota = None
     if hits:
         quota = {scope: {"limit": limit, "remaining": hit.remaining} for scope, limit, hit in hits}

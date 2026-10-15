@@ -280,7 +280,6 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         headings.append("Steering comparison")
         if plan:
             headings.append("Steering plan")
-            headings.append("How to do it")
         headings.append("Techniques to try")
     headings.append("Map character")
     if telemetry and cfg["walkthrough"]:
@@ -330,11 +329,14 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         )
     if telemetry and plan:
         parts.append(
+            "PLACES: the player cannot see metres while driving. Name every place by the corner or checkpoint it is near, using the 'where' "
+            "text from the data (for example 'from corner 5 to 0.6 s before corner 6' or '1.1 s before CP 6'), say which checkpoint stretch it is "
+            "in and what that stretch costs the player (from CHECKPOINT SPLITS), and keep the metres only in brackets. "
             "FOCUS AREAS ON THIS MAP: the candidates' titles and evidence only say WHERE the time went. Do not stop there. Rename each "
             "title after the actual fix, taken from the MAP BLUEPRINT (for example 'Start the right-hand hold 12 m earlier at 700 m' or "
             "'Match the references' wheel wiggle at 560-620 m'), and add a bullet **How to do it** before **Expected payoff**: two to "
             "four numbered steps the player can follow (where to start, what value to hold or what wiggle rate and size, where to let go, "
-            "which line to aim for), using the numbers in the blueprint and LESSONS. Never write 'keep the throttle down', 'carry more "
+            "which line to aim for), using the numbers in the blueprint and LESSONS. Name places only as corners, checkpoints and seconds, never as metres in titles or steps. Never write 'keep the throttle down', 'carry more "
             "speed', 'stay on the line' or 'smooth the steering' as advice on its own: say exactly what to do with the wheel instead."
         )
     if telemetry and plan:
@@ -346,13 +348,6 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
             "(spread of 0.2 or more) say several lines work and give the median as the safe one. Finish with two sentences on the "
             "rhythm of the lap (where the references hold left, where right, where the wheel is near centre) so the player can learn "
             "it as a pattern. Never invent a steering value that is not in the blueprint."
-        )
-        parts.append(
-            "- `## How to do it`: a full lesson (a short paragraph plus the numbered steps, not a one-liner) for each entry in LESSONS (and one for any trick in WHAT THE FASTEST GHOSTS DO or the "
-            "SKILLS list that the player does not do): what it is in plain words, why it matters on THIS map, the numbered steps with the "
-            "player's numbers next to the references' numbers, what it should feel or look like, and one drill to repeat. Keep the "
-            "numbers; do not add steering values, speeds or distances that are not in the data. Be honest where the data cannot show "
-            "something (inputs the replay does not record)."
         )
     if telemetry:
         parts.append(

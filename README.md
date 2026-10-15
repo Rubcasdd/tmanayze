@@ -53,6 +53,7 @@ coach that works from those measurements.
   it, the wheel wiggle, drive the ghosts' line) with drills, shown under the Steering plan and given to the coach, which now
   retitles focus areas after the actual fix and writes a "How to do it" section. Per Nadeo's October 2022 update, ice wiggles
   no longer add speed by themselves, so the wiggle lesson copies the pros' rate and size from the data and says so.
+- **Places, not metres, and a trick playbook:** nobody can see metres while driving, so every place is named by the corner or checkpoint it is near ("from corner 5 to 0.6 s before corner 6", "1.1 s before CP 6") together with the checkpoint stretch it is in and what that stretch costs you. The Playbook tab holds a prepared set of tricks for the map (speed drift, air-brake landings, wall rides, gear-shift timing, bobsleigh wiggle and line, bug slide, throttle/brake points), each with steps, what it feels like, mistakes, a drill and where on this map to use it. The report's `How to do it` section is written from those measured numbers by the server, not by the model. The trick steps are general Trackmania knowledge, not verified against the current physics.
 - **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
   the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
   between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording
@@ -216,6 +217,8 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
   the nearest blocks, so custom or very unusual blocks may show as "unknown".
 - `public/lap.js` — the lap-at-a-glance strip, the ground card and the ground strip on the charts.
 - `backend/blueprint.py` — the references' steering blueprint and the zones where yours differs.
+- `backend/landmarks.py` — turns a distance into corners, checkpoints and seconds.
+- `backend/playbook.py` — the per-map trick cards and the `How to do it` section.
 - `backend/checkpoints.py` — splits and checkpoint-based sections from the times stored in the replay.
 - `backend/driving.py` — landings, wall-rides, input smoothness and what the top ghosts share. `shares.py` — the 30-day store
   behind challenge links. `public/share.js` — the share-card images.
