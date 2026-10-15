@@ -380,6 +380,8 @@ def compare(body: CompareRequest):
         bp = blueprint_mod.build(points_by_ref, first, analog) if first else None
     except Exception:
         bp = None
+    if bp:
+        bp["lessons"] = blueprint_mod.lessons(bp, True)
     for entry in out.values():
         entry["blueprint"] = bp
     try:  # what the ghosts share and the player doesn't (a different line, a jump line, an air-brake)
@@ -451,6 +453,7 @@ def analyze(
     found = focus.find_focus(result.stats, result.corners, result.sections)
     map_uid = subject.get("map_uid") or reference.get("map_uid")
     blueprint_data = None
+    field_text = ""
     if result.stats.get("telemetry"):
         try:
             pts = {"main": result.points}
@@ -459,8 +462,20 @@ def analyze(
                 if o.stats.get("telemetry"):
                     pts[f"other{k}"] = o.points
             blueprint_data = blueprint_mod.build(pts, "main", str(result.stats.get("reference_input_style", "analog")).startswith("analog"))
+            field_text = ""
+            try:  # what the fastest ghosts do that the player doesn't: jump lines, air-brakes, different lines
+                flights = {"main": signals_mod.public_flights(reference.get("samples") or [])}
+                for k, other in enumerate(body.others[:2]):
+                    if f"other{k}" in pts:
+                        flights[f"other{k}"] = signals_mod.public_flights(other.as_run().get("samples") or [])
+                moves = driving_mod.field_moves(pts, signals_mod.public_flights(subject.get("samples") or []), flights)
+                if moves:
+                    field_text = "WHAT THE FASTEST GHOSTS DO THAT THE PLAYER DOES NOT (each is a trick or a line to learn; say how to do it):\n" + "\n".join(f"- at ~{m['dist_m']:.0f} m: {m['text']}" for m in moves)
+            except Exception:
+                field_text = ""
         except Exception:
             blueprint_data = None
+            field_text = ""
 
     insights = None
     if map_uid:
@@ -539,6 +554,9 @@ def analyze(
                 inputs_block = coach.input_scripts_text(result.corners, [c["corner_index"] for c in result.corners][:16])
             if blueprint_data:
                 blueprint_block = blueprint_mod.blueprint_text(blueprint_data, deep=icy or body.depth == "deep")
+                blueprint_block += "\n" + blueprint_mod.lessons_text(blueprint_mod.lessons(blueprint_data, icy))
+                if field_text:
+                    blueprint_block += "\n" + field_text
                 steering_plan = icy or body.depth in ("deep", "detailed")
         except Exception:  # never let a signal bug block the analysis
             signals_block, style_line, styles = "", "", []

@@ -452,6 +452,14 @@ function renderPlan(primary) {
     setHighlight(same ? null : { from, to, title: `Steering ${Math.round(from)}–${Math.round(to)} m`, section: null });
   }));
 
+  const lessons = bp.lessons || [];
+  $("#plan-lessons-h").hidden = !lessons.length;
+  $("#plan-lessons").innerHTML = lessons.map((l) => `<article class="lesson">
+      <h4>${esc(l.title)}</h4><p class="lesson-why">${esc(l.why)}</p>
+      <ol>${l.steps.map((st) => `<li>${esc(st)}</li>`).join("")}</ol>
+      <p class="lesson-drill"><b>Drill:</b> ${esc(l.drill)}</p>
+      ${l.yours || l.theirs ? `<p class="lesson-nums"><b>You:</b> ${esc(l.yours)} <b>Them:</b> ${esc(l.theirs)}</p>` : ""}</article>`).join("");
+
   const analog = bp.style === "analog";
   $("#plan-script-body").innerHTML = `<table class="data plan-table"><thead><tr><th>Where</th><th>Wheel</th>${analog ? "<th>Average</th><th>Peak</th>" : ""}<th>For</th><th>They agree</th></tr></thead><tbody>${bp.script.map((r) => `<tr>
     <td class="mono">${Math.round(r.from_m)}–${Math.round(r.to_m)} m</td><td>${planDirWord(r.dir)}</td>${analog ? `<td class="mono">${r.avg.toFixed(2)}</td><td class="mono">${r.peak.toFixed(2)}</td>` : ""}
