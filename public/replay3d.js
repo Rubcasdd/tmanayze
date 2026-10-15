@@ -32,8 +32,8 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    show: { tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
-    rec: null, root: null, shake: 0, others: [], keys: {}, free: null, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
+    hudSize: 1, show: { blocks: true, captions: true, timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
+    rec: null, root: null, shake: 0, others: [], keys: {}, free: null, captions: [], spoken: new Set(), speak: false, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
   };
 
   // ------------------------------------------------------------------ samples
@@ -145,16 +145,45 @@ const Replay3D = (() => {
     return (gl.glowTex = new T.CanvasTexture(c));
   }
 
-  function roadTexture(T) {
-    const c = document.createElement("canvas"); c.width = 128; c.height = 256;
+  // A texture per kind of ground, one block (32 m) long, with the block seam at its ends, so the road reads like the game's.
+  // `plain` leaves out the edge lines: that one is for the platform blocks under the road.
+  const TEX = {};
+  const SURF = {
+    tech: { base: "#3a3e49", edge: "#d5d8e2", rough: 0.55, metal: 0.1 },
+    bump: { base: "#363a47", edge: "#d5d8e2", rough: 0.7, metal: 0.05 },
+    plastic: { base: "#6f84dc", edge: "#ffffff", rough: 0.35, metal: 0.05 },
+    dirt: { base: "#6b4d31", edge: "#a07c52", rough: 0.95, metal: 0 },
+    grass: { base: "#3f8a3b", edge: "#8fd37c", rough: 1, metal: 0 },
+    ice: { base: "#c6eaf8", edge: "#ffffff", rough: 0.1, metal: 0.02 },
+    water: { base: "#2a6aa8", edge: "#9fd0ff", rough: 0.2, metal: 0 },
+    unknown: { base: "#3a3e49", edge: "#d5d8e2", rough: 0.6, metal: 0.05 },
+  };
+  function surfaceTexture(T, kind, plain) {
+    const key = kind + (plain ? "-p" : "");
+    if (TEX[key]) return TEX[key];
+    const S = 256, def = SURF[kind] || SURF.unknown, c = document.createElement("canvas");
+    c.width = c.height = S;
     const x = c.getContext("2d");
-    x.fillStyle = "#cfd3dc"; x.fillRect(0, 0, 128, 256);
-    for (let i = 0; i < 2600; i++) { const v = 150 + Math.random() * 90; x.fillStyle = `rgba(${v},${v},${v + 8},0.22)`; x.fillRect(Math.random() * 128, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2); }
-    x.fillStyle = "rgba(255,255,255,0.95)"; x.fillRect(6, 0, 3, 256); x.fillRect(119, 0, 3, 256);                 // edge lines
-    x.fillStyle = "rgba(255,255,255,0.8)"; for (let y = 0; y < 256; y += 64) x.fillRect(62, y, 4, 34);               // centre dashes
+    x.fillStyle = def.base; x.fillRect(0, 0, S, S);
+    for (let i = 0; i < 3600; i++) { x.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.09)"; x.fillRect(Math.random() * S, Math.random() * S, 1 + Math.random() * 3, 1 + Math.random() * 3); }
+    if (kind === "plastic") { x.fillStyle = "rgba(255,255,255,0.13)"; for (let i = 64; i < S; i += 64) { x.fillRect(i, 0, 2, S); x.fillRect(0, i, S, 2); } }
+    if (kind === "ice") { x.strokeStyle = "rgba(255,255,255,0.4)"; x.lineWidth = 2; for (let i = 0; i < 26; i++) { const px = Math.random() * S, py = Math.random() * S; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (Math.random() - 0.5) * 30, py + 20 + Math.random() * 60); x.stroke(); } }
+    if (!plain) {
+      x.fillStyle = def.edge; x.fillRect(10, 0, 10, S); x.fillRect(S - 20, 0, 10, S);                       // the road's edge lines
+      x.fillStyle = "rgba(0,0,0,0.28)"; x.fillRect(20, 0, 2, S); x.fillRect(S - 22, 0, 2, S);
+      if (kind === "tech" || kind === "unknown") { x.fillStyle = "rgba(255,255,255,0.35)"; for (let y = 8; y < S; y += 64) x.fillRect(S / 2 - 2, y, 4, 30); }
+      if (kind === "bump") { x.fillStyle = "rgba(255,255,255,0.11)"; for (let y = 0; y < S; y += 24) x.fillRect(22, y, S - 44, 9); }
+      if (kind === "dirt") { x.fillStyle = "rgba(0,0,0,0.2)"; x.fillRect(S * 0.3 - 9, 0, 18, S); x.fillRect(S * 0.7 - 9, 0, 18, S); }
+    }
+    x.fillStyle = "rgba(0,0,0,0.5)"; x.fillRect(0, 0, S, 3); x.fillRect(0, S - 3, S, 3);                    // the seam between two blocks
+    if (plain) { x.fillRect(0, 0, 3, S); x.fillRect(S - 3, 0, 3, S); }
     const tex = new T.CanvasTexture(c);
-    tex.wrapS = T.ClampToEdgeWrapping; tex.wrapT = T.RepeatWrapping; tex.anisotropy = 8;
-    return tex;
+    tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.anisotropy = 8; tex.encoding = T.sRGBEncoding;
+    return (TEX[key] = tex);
+  }
+  function surfaceMaterial(T, kind, plain) {
+    const def = SURF[kind] || SURF.unknown;
+    return new T.MeshStandardMaterial({ map: surfaceTexture(T, kind, plain), roughness: def.rough, metalness: def.metal, side: T.DoubleSide, transparent: kind === "ice", opacity: kind === "ice" ? 0.93 : 1 });
   }
 
   // ------------------------------------------------------------------ effects: particles, streaks, arcs
@@ -352,12 +381,12 @@ const Replay3D = (() => {
     const pts = primary.points, n = pts.length;
     const lab = state.surface && state.surface.labels && state.surface.labels.length === n ? state.surface.labels : null;
     R.lab = lab;
-    const W = 14;
+    const W = 16;
     let minY = Infinity, cx = 0, cz = 0;
     for (const p of pts) { minY = Math.min(minY, p.y); cx += p.x / n; cz += p.z / n; }
 
     // the road: a ribbon along the driven line, banked the way the car was, with markings and the ground colour
-    const pos = new Float32Array(n * 6), col = new Float32Array(n * 6), uv = new Float32Array(n * 4);
+    const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4);
     const P = new T.Vector3(), F = new T.Vector3(), U = new T.Vector3(), L = new T.Vector3(), C = new T.Color();
     const frame = (i) => {
       const p = pts[i], q = pts[Math.min(n - 1, i + 1)], o = pts[Math.max(0, i - 1)];
@@ -375,9 +404,7 @@ const Replay3D = (() => {
       for (let s = 0; s < 2; s++) {
         const side = s === 0 ? 1 : -1;
         pos.set([P.x + L.x * W / 2 * side - U.x * 0.55, P.y + L.y * W / 2 * side - U.y * 0.55, P.z + L.z * W / 2 * side - U.z * 0.55], (i * 2 + s) * 3);
-        uv.set([s, pts[i].distance_m / 12], (i * 2 + s) * 2);
-        C.setHex(GROUND[lab ? lab[i] : "unknown"] || GROUND.unknown);
-        col.set([C.r, C.g, C.b], (i * 2 + s) * 3);
+        uv.set([s, pts[i].distance_m / 32], (i * 2 + s) * 2);
       }
       // the barrier walls: a short vertical strip on each edge
       for (let side = 0; side < 2; side++) {
@@ -394,8 +421,13 @@ const Replay3D = (() => {
       geo.setIndex(idx); geo.computeVertexNormals();
       return geo;
     };
-    const road = new T.Mesh(strip(pos, [["color", col, 3], ["uv", uv, 2]]), new T.MeshStandardMaterial({ map: roadTexture(T), vertexColors: true, side: T.DoubleSide, roughness: 0.62, metalness: 0.08 }));
-    road.receiveShadow = true; scene.add(road);
+    // one mesh per kind of ground, each with its own surface, so tech, plastic, dirt, grass and ice look different
+    const posAttr = new T.BufferAttribute(pos, 3), uvAttr = new T.BufferAttribute(uv, 2), byKind = {};
+    for (let i = 0; i < n - 1; i++) { const a = i * 2, k = lab ? lab[i] || "unknown" : "unknown"; (byKind[k] = byKind[k] || []).push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (const [k, idx] of Object.entries(byKind)) {
+      const g = new T.BufferGeometry(); g.setAttribute("position", posAttr); g.setAttribute("uv", uvAttr); g.setIndex(idx); g.computeVertexNormals();
+      const road = new T.Mesh(g, surfaceMaterial(T, k, false)); road.receiveShadow = true; scene.add(road);
+    }
     for (const [side, hex] of [[0, 0x8f7bff], [1, 0xffc247]]) {
       const w = new T.Mesh(strip(wall[side]), new T.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: T.DoubleSide, roughness: 0.4 }));
       scene.add(w);
@@ -403,6 +435,7 @@ const Replay3D = (() => {
 
     // terrain far below, with trees, and the pillars the track stands on
     const base = minY - 95, SZ = 7600, SEG = 150;
+    gl.base = base;
     const tg = new T.PlaneGeometry(SZ, SZ, SEG, SEG); tg.rotateX(-Math.PI / 2);
     const tp = tg.attributes.position, tc = new Float32Array(tp.count * 3);
     for (let i = 0; i < tp.count; i++) {
@@ -489,6 +522,98 @@ const Replay3D = (() => {
     R.sf = new T.Vector3(0, 0, 1); R.su = new T.Vector3(0, 1, 0); R.camPos = new T.Vector3(); R.camLook = new T.Vector3();
     R.deltas = pts.map((p) => p.delta_ms); R.ptT = pts.map((p) => p.t_ms);
     R.map = null;
+  }
+
+  // ------------------------------------------------------------------ the map's own blocks around the road
+
+  // The map file lists each block's name, grid cell, level and facing, but not free blocks or custom items, and says nothing
+  // about a ramp's or curve's shape. So: flat pieces under the line are drawn as platforms (placed from the driven line,
+  // which is exact), pillars stand from their place down to the ground, and structures, decorations and stands are shown as
+  // left out. Ramps and curves are left to the road itself.
+  function addBlocks(data) {
+    const T = R.THREE, scene = gl.scene;
+    if (gl.blocks) { scene.remove(gl.blocks); gl.blocks.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+    const group = new T.Group(); group.visible = R.show.blocks; scene.add(group); gl.blocks = group;
+    const pts = R.primary.points, CELL = data.cell || 32, LV = data.level || 8, off = data.y_offset;
+    const grid = new Map(), key = (a, b) => a + "," + b;
+    pts.forEach((p, i) => { const k = key(Math.floor(p.x / 24), Math.floor(p.z / 24)); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); });
+    // the line point that runs through this block's footprint (and at about its height, when the heights are known)
+    const under = (cx, cz, guessY) => {
+      let best = -1, bd = Infinity;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const arr = grid.get(key(Math.floor(cx / 24) + a, Math.floor(cz / 24) + b));
+        if (!arr) continue;
+        for (const i of arr) {
+          const p = pts[i], dx = p.x - cx, dz = p.z - cz;
+          if (Math.abs(dx) > CELL / 2 || Math.abs(dz) > CELL / 2) continue;
+          if (guessY != null && Math.abs(p.y - guessY) > 12) continue;
+          const d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+      }
+      return best;
+    };
+    const list = data.blocks.map((b) => {
+      const cx = b.x * CELL + CELL / 2, cz = b.z * CELL + CELL / 2;
+      return { b, cx, cz, i: b.k === "flat" ? under(cx, cz, off != null ? b.y * LV + off + 4 : null) : -1 };
+    });
+    // the platforms under the line fix the height of everything else, by the number of levels between them
+    const refs = list.filter((o) => o.i >= 0).map((o) => { o.top = pts[o.i].y - 0.78; return o; });
+    if (!refs.length) { R.blockInfo = { total: data.total, drawn: 0, note: "none of the map's blocks line up with the road" }; return; }
+    // a block takes its height from a platform under the line only if it is close to it; anything further off is left out
+    const near = (o, max) => { let best = null, bd = Infinity; for (const r of refs) { const d = Math.max(Math.abs(r.b.x - o.b.x), Math.abs(r.b.z - o.b.z)); if (d < bd) { bd = d; best = r; } } return bd <= max ? best : null; };
+    const M = new T.Matrix4(), Q = new T.Quaternion(), Sc = new T.Vector3(), Pp = new T.Vector3(), Y = new T.Vector3(0, 1, 0);
+    const slabs = {}, pillars = [];
+    for (const o of list) {
+      const k = o.b.k;
+      if (k === "flat") {
+        // a flat piece on the same level as the road's platforms is on the same plane: draw it, so the platform reads as blocks
+        const ref = o.i >= 0 ? o : near(o, 3);
+        if (!ref || o.b.y !== ref.b.y) continue;
+        let rot = (o.b.d || 0) * Math.PI / 2;
+        if (o.i >= 0) { const p = pts[o.i], hd = p.fx != null ? Math.atan2(p.fx, p.fz) : 0; rot = Math.round(hd / (Math.PI / 2)) * (Math.PI / 2); }   // run the way the road runs through it
+        (slabs[o.b.s || "tech"] = slabs[o.b.s || "tech"] || []).push([o.cx, ref.top - 1.1, o.cz, rot]);
+      } else if (k === "pillar") {
+        // a pillar close to the road and on a level at or below it stands from there down to the ground
+        const ref = near(o, 2);
+        if (!ref || o.b.y > ref.b.y) continue;
+        const top = ref.top + (o.b.y - ref.b.y) * LV, bot = gl.base + terrainH(o.cx, o.cz), h = top - bot;
+        if (h > 3 && h < 400) pillars.push([o.cx, bot + h / 2, o.cz, h]);
+      }
+    }
+    let drawn = 0;
+    for (const [kind, arr] of Object.entries(slabs)) {
+      const mesh = new T.InstancedMesh(new T.BoxGeometry(CELL - 0.3, 2.2, CELL - 0.3), surfaceMaterial(T, kind, true), arr.length);
+      arr.forEach((a, i) => { Q.setFromAxisAngle(Y, a[3]); M.compose(Pp.set(a[0], a[1], a[2]), Q, Sc.set(1, 1, 1)); mesh.setMatrixAt(i, M); });
+      mesh.receiveShadow = true; mesh.castShadow = true; group.add(mesh); drawn += arr.length;
+    }
+    if (pillars.length) {
+      const pm = new T.InstancedMesh(new T.BoxGeometry(3.4, 1, 3.4), new T.MeshStandardMaterial({ color: 0x5a6280, roughness: 0.6, metalness: 0.35 }), pillars.length);
+      pillars.forEach((a, i) => { M.compose(Pp.set(a[0], a[1], a[2]), Q.identity(), Sc.set(1, a[3], 1)); pm.setMatrixAt(i, M); });
+      pm.castShadow = true; group.add(pm);
+    }
+    R.blockInfo = { total: data.total, drawn, pillars: pillars.length, snapped: refs.length };
+  }
+
+  async function loadBlocks(mapUid, token) {
+    R.blockInfo = null; updateBlockNote("Reading the map's blocks…");
+    try {
+      const pts = R.primary.points, step = Math.max(1, Math.floor(pts.length / 800));
+      const data = await postJson("/api/blocks", { map_uid: mapUid, points: pts.filter((_, i) => i % step === 0).map((p) => [p.x, p.y, p.z]) });
+      if (token !== R.blockToken) return;
+      if (!data.available || !data.blocks.length) { R.blockInfo = { none: true }; updateBlockNote(); return; }
+      addBlocks(data);
+    } catch (e) { if (token === R.blockToken) R.blockInfo = { none: true }; }
+    if (token === R.blockToken) updateBlockNote();
+  }
+
+  function updateBlockNote(text) {
+    const el = R.root && R.root.querySelector(".rp-blocknote");
+    if (!el) return;
+    const i = R.blockInfo;
+    el.textContent = text || (!i ? "" : i.none ? "The map file couldn't be read, so only the road is drawn."
+      : !i.drawn && !i.pillars ? `The map has ${i.total} blocks but none line up with the road, so only the road is drawn (free blocks and custom items are not in the file).`
+      : `From the map file: ${i.drawn} platform blocks and ${i.pillars || 0} pillars around the road. Only pieces that can be placed from the road itself are drawn: ramps, curves, free blocks and custom items are not in the file, so some maps show little.`);
   }
 
   // ------------------------------------------------------------------ cameras
@@ -684,7 +809,7 @@ const Replay3D = (() => {
   // up fills with the throttle and down with the brake, and the exact percentages are written underneath
   function drawPad(c, x, y, v, label, color) {
     const w = 206, h = 116;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, w, h);
     c.fillStyle = color; c.fillRect(x, y, 3, h);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
@@ -697,7 +822,7 @@ const Replay3D = (() => {
   function drawInputs(c, x, y, v, label, color) {
     if (R.show.pad) { drawPad(c, x, y - 20, v, label, color); return; }
     const w = 170, h = 96;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, w, h);
     c.fillStyle = color; c.fillRect(x, y, 3, h);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
@@ -716,7 +841,7 @@ const Replay3D = (() => {
     const v = V.tag || (V.tag = new R.THREE.Vector3());
     v.copy(car.p).addScaledVector(car.u, 2.4).project(gl.camera);
     if (v.z > 1 || v.z < -1) return;
-    const W = c.canvas.clientWidth, H = c.canvas.clientHeight, x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
+    const W = c.canvas.clientWidth / R.k, H = c.canvas.clientHeight / R.k, x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * H;
     if (x < 10 || x > W - 10 || y < 10 || y > H - 10) return;
     c.font = `700 13px Barlow, sans-serif`;
     const tw = Math.max(c.measureText(text).width, sub ? c.measureText(sub).width : 0) + 14;
@@ -735,7 +860,7 @@ const Replay3D = (() => {
       const sc = Math.min((mw - 16) / Math.max(1, b - a), (mh - 16) / Math.max(1, e - d)), ox = (mw - (b - a) * sc) / 2, oz = (mh - (e - d) * sc) / 2;
       const cv = document.createElement("canvas"); cv.width = mw * 2; cv.height = mh * 2;
       const q = cv.getContext("2d"); q.scale(2, 2);
-      q.fillStyle = "rgba(8,12,22,0.62)"; q.fillRect(0, 0, mw, mh);
+      q.fillStyle = "rgba(8,12,22,0.5)"; q.fillRect(0, 0, mw, mh);
       q.strokeStyle = "#5d6c93"; q.lineWidth = 2; q.lineJoin = "round"; q.beginPath();
       pts.forEach((p, i) => { const X = ox + (p.x - a) * sc, Y = oz + (p.z - d) * sc; if (i) q.lineTo(X, Y); else q.moveTo(X, Y); }); q.stroke();
       R.map = { w: mw, cv, a, d, sc, ox, oz };
@@ -775,7 +900,7 @@ const Replay3D = (() => {
   function drawTower(c) {
     if (!R.show.tower) return;
     const rows = tower(), x = 12, y = 46, rh = 20;
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, 196, 8 + rows.length * rh);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(x, y, 196, 8 + rows.length * rh);
     rows.forEach((r, i) => {
       const yy = y + 4 + i * rh;
       if (r.you) { c.fillStyle = "rgba(143,123,255,0.28)"; c.fillRect(x + 2, yy, 192, rh - 1); }
@@ -790,14 +915,51 @@ const Replay3D = (() => {
     });
   }
 
+  // the coach's captions: what is happening right now and what to change, shown while it happens
+  const CAP = { loss: "#ff5a73", gain: "#2fe3a2", note: "#ffc247" };
+  function wrap(c, text, maxW) {
+    const words = String(text).split(" "), lines = [];
+    let cur = "";
+    for (const w of words) { const t = cur ? cur + " " + w : w; if (cur && c.measureText(t).width > maxW) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function drawCaptions(c, w, h) {
+    const live = R.captions.filter((k) => R.t >= k.t0 && R.t <= k.t1).slice(0, 2);
+    if (!live.length) return;
+    const bw = clamp(w - 470, 300, 560), x = (w - bw) / 2;
+    let y = h - 14;
+    c.textBaseline = "alphabetic"; c.textAlign = "left";
+    for (const k of live.reverse()) {
+      const a = clamp(Math.min(R.t - k.t0, k.t1 - R.t) / 350, 0, 1);
+      c.font = `600 13px Barlow, sans-serif`;
+      const lines = k.lines.flatMap((l) => wrap(c, l, bw - 30)).slice(0, 5), bh = 30 + lines.length * 17;
+      y -= bh;
+      c.globalAlpha = a;
+      c.fillStyle = "rgba(8,12,22,0.78)"; c.fillRect(x, y, bw, bh);
+      c.fillStyle = CAP[k.kind] || CAP.note; c.fillRect(x, y, 4, bh);
+      c.font = `700 15px "Barlow Condensed", sans-serif`; c.fillStyle = "#fff"; c.fillText(k.title, x + 14, y + 20);
+      if (k.tag) { c.textAlign = "right"; c.fillStyle = CAP[k.kind] || CAP.note; c.fillText(k.tag, x + bw - 12, y + 20); c.textAlign = "left"; }
+      c.font = `600 13px Barlow, sans-serif`; c.fillStyle = "#d6dcef";
+      lines.forEach((l, i) => c.fillText(l, x + 14, y + 39 + i * 17));
+      c.globalAlpha = 1;
+      y -= 8;
+    }
+  }
+
   function drawHud() {
-    const cv = gl.hud, w = cv.clientWidth, h = cv.clientHeight;
-    if (!w) return;
+    const cv = gl.hud;
+    if (!cv.clientWidth) return;
+    // the display is laid out for a 1000-pixel-wide picture and scaled to the real one, times the HUD size setting
+    const k = clamp(R.hudSize * cv.clientWidth / 1000, 0.4, 1.5);
+    R.k = k;
+    const w = cv.clientWidth / k, h = cv.clientHeight / k;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    if (cv.width !== Math.round(cv.clientWidth * dpr) || cv.height !== Math.round(cv.clientHeight * dpr)) { cv.width = Math.round(cv.clientWidth * dpr); cv.height = Math.round(cv.clientHeight * dpr); }
     const c = cv.getContext("2d");
-    c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+    c.setTransform(dpr * k, 0, 0, dpr * k, 0, 0); c.clearRect(0, 0, w, h);
     const d = delta(R.t);
+    if (R.show.timer) {
     pill(c, w / 2 - 78, 12, 156, 32, "rgba(12,14,20,0.88)", "#fff", mmss(R.t), `700 22px "Barlow Condensed", "Arial Narrow", sans-serif`);
     pill(c, w / 2 - 78, 46, 156, 28, d > 0 ? "#d9363e" : "#2f6df0", "#fff", sgn(d), `700 19px "Barlow Condensed", "Arial Narrow", sans-serif`);
     // on pace for: the ghost's finish plus today's gap, like the Predictor plugin
@@ -812,17 +974,18 @@ const Replay3D = (() => {
         pill(c, w / 2 - 78, 156, 156, 22, "rgba(12,14,20,0.88)", dv < 0 ? "#ff8a9a" : "#7fe8c0", `${hit.sy} km/h  (${dv >= 0 ? "+" : "-"}${Math.abs(dv)})`, `700 14px "Barlow Condensed", sans-serif`);
       }
     }
+    }
     drawTower(c);
     c.textAlign = "left"; c.textBaseline = "alphabetic";
     const m = MODES.find((x) => x[0] === R.cam.mode);
-    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(12, 12, 150, 24);
+    c.fillStyle = "rgba(8,12,22,0.5)"; c.fillRect(12, 12, 150, 24);
     c.fillStyle = "#eef2fb"; c.font = `700 13px Barlow, sans-serif`; c.fillText(`CAM  ${m ? m[1].toUpperCase() : ""}`, 22, 29);
     if (R.rate !== 1) {
       c.fillStyle = "rgba(255,194,71,0.9)"; c.fillRect(w - 112, 12, 100, 26);
       c.fillStyle = "#1a1304"; c.font = `800 15px Barlow, sans-serif`; c.textAlign = "center"; c.fillText(R.rate < 1 ? `SLOW ${R.rate}×` : `${R.rate}×`, w - 62, 30);
     }
     if (R.rec) { c.fillStyle = "#ff5a73"; c.beginPath(); c.arc(w - 130, 25, 6, 0, 7); c.fill(); }
-    drawMini(c, w);
+    if (R.show.mini) drawMini(c, w);
     // names over the cars and the distance between them
     const gap = gl.cy.p.distanceTo(gl.cg.p);
     const rel = (V.rv || (V.rv = new R.THREE.Vector3())).copy(gl.cg.p).sub(gl.cy.p).dot(gl.cy.f);
@@ -848,8 +1011,9 @@ const Replay3D = (() => {
     }
     // a slide badge
     if (R.slip && R.slip > 9 && !fl) { pill(c, 12, h - (R.show.pad ? 168 : 148), 110, 28, "rgba(255,150,40,0.85)", "#1d1103", `DRIFT ${Math.round(R.slip)}°`, `800 17px "Barlow Condensed", sans-serif`); }
-    drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
-    if (R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
+    if (R.show.inputs) drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
+    if (R.show.inputs && R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
+    if (R.show.captions) drawCaptions(c, w, h);
     if (R.show.bars) { c.fillStyle = "#000"; c.fillRect(0, 0, w, h * 0.1); c.fillRect(0, h * 0.9, w, h * 0.1); }
   }
 
@@ -879,6 +1043,7 @@ const Replay3D = (() => {
       c.fillStyle = i === R.shotIdx ? "#8f7bff" : "#5b6b92"; const x = X(s.t);
       c.beginPath(); c.moveTo(x - 5, 0); c.lineTo(x + 5, 0); c.lineTo(x, 9); c.fill();
     }
+    for (const k of R.captions) { c.fillStyle = CAP[k.kind] || CAP.note; c.beginPath(); c.arc(X(k.t0), h - 5, 3, 0, 7); c.fill(); }   // the coach's notes
     c.strokeStyle = "#fff"; c.lineWidth = 2; c.beginPath(); c.moveTo(X(R.t), 0); c.lineTo(X(R.t), h); c.stroke();
   }
 
@@ -975,9 +1140,9 @@ const Replay3D = (() => {
     box.querySelectorAll("button[data-t0]").forEach((b) => b.addEventListener("click", () => playClip(+b.dataset.t0, +b.dataset.t1, 0.25)));
   }
 
-  function playClip(t0, t1, rate) {
+  function playClip(t0, t1, rate, mode) {
     cutsOff();
-    R.cam = { ...R.cam, mode: "duel", dist: 11, height: 3, yaw: 0, pitch: 0 };
+    R.cam = { ...R.cam, mode: mode || "duel", dist: mode === "chase" ? 6.8 : 11, height: mode === "chase" ? 2.3 : 3, yaw: 0, pitch: 0 };
     R.clip = { end: t1 };
     setRate(rate); seek(t0); play();
   }
@@ -985,7 +1150,36 @@ const Replay3D = (() => {
   // ------------------------------------------------------------------ transport
 
   function cutsOff() { if (R.cuts && R.shots.length) { R.cuts = false; const c = R.root.querySelector(".rp-cuts"); if (c) c.checked = false; } }
-  function seek(t) { R.t = clamp(t, 0, R.tEnd); R.shotIdx = -2; checkShots(true); R.prevT = R.t; render(0, true); }
+  function seek(t) {
+    R.t = clamp(t, 0, R.tEnd); R.shotIdx = -2; checkShots(true); R.prevT = R.t;
+    R.spoken = new Set(R.captions.map((k, i) => (k.t0 < R.t ? i : -1)).filter((i) => i >= 0));      // captions already behind you are not read out
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    render(0, true);
+  }
+
+  // read the captions aloud as they come up (only while playing, once each)
+  function speakCaptions() {
+    if (!R.speak || !window.speechSynthesis) return;
+    R.captions.forEach((k, i) => {
+      if (R.spoken.has(i) || R.t < k.t0 || R.t > k.t0 + 700) return;
+      R.spoken.add(i);
+      const cost = k.tag ? (k.tag.startsWith("−") ? ` costs ${k.tag.slice(1).replace(" s", " seconds")}.` : ` gains ${k.tag.slice(1).replace(" s", " seconds")}.`) : ".";
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(`${k.title.replace(/^Steering: /, "Steering, ")}${cost} ${k.lines.join(". ")}`.replace(/→/g, "to"));
+        u.rate = 1.15; window.speechSynthesis.speak(u);
+      } catch (e) { /* speech is a bonus */ }
+    });
+  }
+
+  function renderNotes() {
+    const box = R.root.querySelector(".rp-notes");
+    if (!box) return;
+    if (!R.captions.length) { box.innerHTML = `<p class="hint">Nothing stands out on this lap.</p>`; return; }
+    box.innerHTML = R.captions.map((k, i) => `<button type="button" class="rp-note" data-i="${i}">
+      <span class="rp-nt">${mmss(k.t0 + 1300).slice(1, 7)}</span><span class="rp-nm"><b>${esc(k.title)}</b>${k.tag ? ` <em class="${k.kind}">${esc(k.tag)}</em>` : ""}<small>${esc(k.lines[0])}</small></span><span class="rp-ng">&#9654;</span></button>`).join("");
+    box.querySelectorAll(".rp-note").forEach((b) => b.addEventListener("click", () => { const k = R.captions[+b.dataset.i]; playClip(Math.max(0, k.t0 - 300), k.t1 + 500, 0.5, "chase"); }));
+  }
   function stepBy(ms) { pause(); seek(R.t + ms); }
 
   function play() {
@@ -1006,6 +1200,7 @@ const Replay3D = (() => {
       if (R.t >= R.tEnd) { R.t = R.tEnd; R.playing = false; stopRecord(); }
       if (R.clip && R.t >= R.clip.end) { R.clip = null; R.playing = false; setRate(1); }
       checkShots(false);
+      speakCaptions();
     }
     moveFree(dt);
     render(R.playing ? dt : 0, !R.playing);
@@ -1072,6 +1267,26 @@ const Replay3D = (() => {
     out.toBlob((blob) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "replay-frame.png"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000); });
   }
 
+  // ------------------------------------------------------------------ HUD settings, remembered between visits
+
+  const HUD_KEYS = ["timer", "inputs", "mini", "tower", "pad", "captions"];
+  function saveHud() { try { localStorage.setItem("tm-hud", JSON.stringify({ size: R.hudSize, speak: R.speak, ...Object.fromEntries(HUD_KEYS.map((k) => [k, R.show[k]])) })); } catch (e) { /* a convenience only */ } }
+  function loadHud() {
+    try {
+      const h = JSON.parse(localStorage.getItem("tm-hud") || "null");
+      if (!h) return;
+      if (typeof h.size === "number") R.hudSize = clamp(h.size, 0.4, 1.4);
+      for (const k of HUD_KEYS) if (typeof h[k] === "boolean") R.show[k] = h[k];
+      if (typeof h.speak === "boolean") R.speak = h.speak;
+    } catch (e) { /* ignore */ }
+  }
+  function syncHudUi() {
+    const q = (s) => R.root.querySelector(s);
+    q(".rp-hudsize").value = Math.round(R.hudSize * 100);
+    for (const [cls, k] of [["rp-timer", "timer"], ["rp-inputs", "inputs"], ["rp-mini", "mini"], ["rp-tower", "tower"], ["rp-pad", "pad"], ["rp-caps", "captions"]]) q("." + cls).checked = !!R.show[k];
+    q(".rp-speak").checked = !!R.speak;
+  }
+
   // ------------------------------------------------------------------ DOM
 
   function template() {
@@ -1109,10 +1324,21 @@ const Replay3D = (() => {
             ${chk("rp-ghostvis", "Ghost", true)}${chk("rp-fxon", "Spray, sparks, streaks", true)}
             ${chk("rp-trails", "Trails", true)}${chk("rp-arcs", "Jump arcs", true)}
             ${chk("rp-gates", "Checkpoints", true)}${chk("rp-shadows", "Shadows", true)}
-            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-pad", "Arrow input display", true)}${chk("rp-tower", "Timing tower", true)}
+            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-blocks", "Map blocks", true)}
           </div>
+          <p class="hint rp-blocknote"></p>
           <button type="button" class="btn quiet rp-drop" title="Pin a trackside camera here so the cars drive past it">Pin a trackside camera here</button>
         </section>
+        <section><h3>On-screen display</h3>
+          <div class="rp-sliders"><label>HUD size<input type="range" class="rp-hudsize" min="40" max="140" step="5" /></label></div>
+          <div class="rp-checks">
+            ${chk("rp-timer", "Timer and gaps", true)}${chk("rp-tower", "Timing tower", true)}
+            ${chk("rp-inputs", "Inputs", true)}${chk("rp-pad", "Arrow input display", true)}
+            ${chk("rp-mini", "Mini-map", true)}${chk("rp-caps", "Coach captions", true)}
+            ${chk("rp-speak", "Read captions aloud", false)}
+          </div>
+        </section>
+        <section><h3>Coach notes <small>click one to watch it</small></h3><div class="rp-notes"></div></section>
         <section><h3>Air <small>jumps, replay them in slow motion</small></h3><div class="rp-airlist"></div></section>
         <section><h3>Shots <small>camera cuts</small></h3>
           <label class="tv-check rp-cutsrow"><input type="checkbox" class="rp-cuts" checked /> Use the cuts <small>(turns off when you take over the camera)</small></label>
@@ -1148,7 +1374,12 @@ const Replay3D = (() => {
     const tog = (cls, fn) => q(cls).addEventListener("change", (e) => { fn(e.target.checked); render(0, true); });
     tog(".rp-sfov", (v) => (R.cam.speedFov = v)); tog(".rp-shake", (v) => (R.show.shake = v)); tog(".rp-ghostvis", (v) => (R.show.ghost = v));
     tog(".rp-fxon", (v) => (R.show.fx = v)); tog(".rp-trails", (v) => (R.show.trails = v)); tog(".rp-arcs", (v) => (R.show.arcs = v));
-    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => (R.show.pad = v)); tog(".rp-tower", (v) => (R.show.tower = v));
+    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => { R.show.pad = v; saveHud(); }); tog(".rp-tower", (v) => { R.show.tower = v; saveHud(); });
+    tog(".rp-timer", (v) => { R.show.timer = v; saveHud(); }); tog(".rp-inputs", (v) => { R.show.inputs = v; saveHud(); }); tog(".rp-mini", (v) => { R.show.mini = v; saveHud(); });
+    tog(".rp-caps", (v) => { R.show.captions = v; saveHud(); });
+    tog(".rp-blocks", (v) => { R.show.blocks = v; if (gl.blocks) gl.blocks.visible = v; });
+    q(".rp-speak").addEventListener("change", (e) => { R.speak = e.target.checked; if (!R.speak && window.speechSynthesis) window.speechSynthesis.cancel(); saveHud(); });
+    q(".rp-hudsize").addEventListener("input", (e) => { R.hudSize = +e.target.value / 100; saveHud(); render(0, true); });
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
     q(".rp-cuts").addEventListener("change", (e) => { R.cuts = e.target.checked; R.shotIdx = -2; checkShots(true); });
     q(".rp-addshot").addEventListener("click", addShot);
@@ -1256,7 +1487,9 @@ const Replay3D = (() => {
           sy: Math.round(at(R.you, t, o1, THREE).speed), sg: Math.round(at(R.ghost, ref.checkpoints[i], o2, THREE).speed) }));
       } else R.cps = [];
       R.key = key; R.loaded = true; R.t = 0; R.prevT = 0; R.playing = false; R.cam = { ...DEFAULT_CAM }; R.rate = 1; R.shotIdx = -1; R.clip = null; R.cuts = true;
-      loadShots();
+      loadShots(); loadHud(); syncHudUi();
+      R.captions = Captions.build(R.primary); R.spoken = new Set(); renderNotes();
+      R.blockToken = (R.blockToken || 0) + 1; gl.blocks = null; loadBlocks(me.map_uid, R.blockToken);
       root.querySelector(".rp-loading").hidden = true;
       renderShots(); renderAir(); resize();
       seek(0);
@@ -1270,6 +1503,8 @@ const Replay3D = (() => {
     render(primary) { R.primary = primary; R.key = null; R.loaded = false; if (R.visible) ensure(); },
     async show() { R.visible = true; await ensure(); if (R.loaded) { R.last = performance.now(); resize(); } },
     hide() { R.visible = false; if (R.playing) pause(); stopRecord(); },
+    captions: () => R.captions.map((k) => [Math.round(k.t0), k.title, k.tag]),
+    blockInfo: () => R.blockInfo,
     state: () => ({ particles: gl.parts ? Array.from(gl.parts.ttl).filter((x) => x > 0).length : 0, t: R.t, rate: R.rate, mode: R.cam.mode, loaded: R.loaded, shots: R.shots.length, clipBytes: R.lastClipBytes || 0, rec: !!R.rec, flights: R.flights.you.length }),
     // for checking: does the car turn the way the recorded steering says? (positive steer is right, a clockwise turn seen from above)
     probe() {

@@ -75,10 +75,31 @@ def classify(name: str) -> str | None:
     return None
 
 
+def block_kind(name: str) -> str | None:
+    """What shape family a block belongs to, for drawing it. None for blocks that are not drawn (the water and shore)."""
+    n = name
+    if n.startswith(("Lake", "Water")):
+        return None
+    if "Pillar" in n:
+        return "pillar"
+    if n.startswith("Structure"):
+        return "structure"
+    if n.startswith("Deco"):
+        return "deco"
+    if n.startswith(("Stand", "Stage")):
+        return "stand"
+    if classify(n) is not None:
+        if any(w in n for w in ("Slope", "Curve", "Loop", "Tilt", "Diag", "Cross", "Chicane")):
+            return "shaped"      # a ramp, a bend, a banked or diagonal piece: not a flat slab
+        return "flat"
+    return "other"
+
+
 class SurfaceMap:
     """The driving blocks of one map, indexed by grid cell."""
 
     def __init__(self, size: tuple[int, int, int], blocks: list[mapblocks.Block]):
+        self.all = blocks
         self.size = size
         self.cells: dict[tuple[int, int], list[tuple[int, str]]] = collections.defaultdict(list)
         self.count = 0
@@ -122,6 +143,36 @@ class SurfaceMap:
                 best, best_score = off, score
         self.y_offset = float(best) if best is not None else None
         return self.y_offset
+
+    # ----------------------------------------------------------- the blocks around a line
+
+    def blocks_near(self, points: list[tuple[float, float, float]], reach: int = 2, limit: int = 3200) -> dict:
+        """The blocks within `reach` grid cells of a driven line, for drawing. Positions are grid cells and levels;
+        `y_offset` turns a level into world metres (level * 8 + y_offset). Free blocks and custom items are not in the
+        map's block list, so a map built from them comes back sparse."""
+        if self.y_offset is None:
+            self.calibrate(points)
+        wanted = set()
+        for x, _, z in points:
+            cx, cz = int(x // CELL), int(z // CELL)
+            for gx in range(cx - reach, cx + reach + 1):
+                for gz in range(cz - reach, cz + reach + 1):
+                    wanted.add((gx, gz))
+        out = []
+        for b in self.all:
+            if (b.x, b.z) not in wanted:
+                continue
+            kind = block_kind(b.name)
+            if kind is None:
+                continue
+            out.append({"n": b.name, "k": kind, "s": classify(b.name), "x": b.x, "y": b.y, "z": b.z, "d": b.direction})
+        if len(out) > limit:       # keep the ones nearest the line
+            near = {}
+            for x, _, z in points[:: max(1, len(points) // 400)]:
+                near[(int(x // CELL), int(z // CELL))] = True
+            out.sort(key=lambda b: min((abs(b["x"] - cx) + abs(b["z"] - cz) for cx, cz in near), default=0))
+            out = out[:limit]
+        return {"available": True, "y_offset": self.y_offset, "cell": CELL, "level": LEVEL, "total": len(self.all), "blocks": out}
 
     # ------------------------------------------------------------- labelling
 

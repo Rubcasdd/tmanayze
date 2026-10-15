@@ -340,6 +340,20 @@ def surface_for_points(body: SurfaceRequest):
     }
 
 
+@app.post("/api/blocks")
+def blocks_near_line(body: SurfaceRequest):
+    """The map's blocks around a driven line, for the 3D replay: shape family, grid cell, level and facing."""
+    try:
+        net.valid_map_uid(body.map_uid)
+    except ValueError:
+        raise HTTPException(400, "invalid map uid") from None
+    pts = [(p[0], p[1], p[2]) for p in body.points if len(p) >= 3]
+    sm = surface_mod.get_surface_map(body.map_uid)
+    if sm is None or not pts:
+        return {"available": False, "blocks": []}
+    return sm.blocks_near(pts)
+
+
 def _ground_labels(run: dict) -> list[str] | None:
     """The ground under each sample of a run (from the map's blocks), or None when it can't be had."""
     try:
