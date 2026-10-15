@@ -442,9 +442,9 @@ function renderPlan(primary) {
   z.innerHTML = bp.zones.length
     ? [...bp.zones].sort((a, b) => b.score - a.score).map((zone, i) => `<button type="button" class="plan-zone" data-from="${zone.from_m}" data-to="${zone.to_m}">
         <span class="pz-rank">${i + 1}</span>
-        <span class="pz-where">${Math.round(zone.from_m)}–${Math.round(zone.to_m)} m</span>
+        <span class="pz-where">${esc(zone.where || `${Math.round(zone.from_m)}–${Math.round(zone.to_m)} m`)} <small>${Math.round(zone.from_m)}–${Math.round(zone.to_m)} m</small>${zone.segment ? `<em>${esc(zone.segment)}${zone.seg_gap_ms != null ? ` ${fmtGap(zone.seg_gap_ms)}` : ""}</em>` : ""}</span>
         <span class="pz-time ${zone.time_ms > 5 ? "loss" : zone.time_ms < -5 ? "gain" : ""}">${fmtGap(zone.time_ms)}</span>
-        <span class="pz-text">${esc(zone.text.replace(/^[0-9-]+ m: /, ""))}</span></button>`).join("")
+        <span class="pz-text">${esc(zone.text.slice(zone.text.indexOf(": ") + 2).replace(/ \[[^\]]*\]$/, ""))}</span></button>`).join("")
     : `<div class="hint">Your steering follows the references' everywhere within the limits. Nothing to change in the wheel.</div>`;
   $$(".plan-zone", z).forEach((b) => b.addEventListener("click", () => {
     const from = +b.dataset.from, to = +b.dataset.to;
@@ -461,7 +461,40 @@ function renderPlan(primary) {
       ${l.yours || l.theirs ? `<p class="lesson-nums"><b>You:</b> ${esc(l.yours)} <b>Them:</b> ${esc(l.theirs)}</p>` : ""}</article>`).join("");
 
   const analog = bp.style === "analog";
-  $("#plan-script-body").innerHTML = `<table class="data plan-table"><thead><tr><th>Where</th><th>Wheel</th>${analog ? "<th>Average</th><th>Peak</th>" : ""}<th>For</th><th>They agree</th></tr></thead><tbody>${bp.script.map((r) => `<tr>
-    <td class="mono">${Math.round(r.from_m)}–${Math.round(r.to_m)} m</td><td>${planDirWord(r.dir)}</td>${analog ? `<td class="mono">${r.avg.toFixed(2)}</td><td class="mono">${r.peak.toFixed(2)}</td>` : ""}
+  $("#plan-script-body").innerHTML = `<table class="data plan-table"><thead><tr><th>Where</th><th>Metres</th><th>Wheel</th>${analog ? "<th>Average</th><th>Peak</th>" : ""}<th>For</th><th>They agree</th></tr></thead><tbody>${bp.script.map((r) => `<tr>
+    <td>${esc(r.where || "")}</td><td class="mono">${Math.round(r.from_m)}–${Math.round(r.to_m)}</td><td>${planDirWord(r.dir)}</td>${analog ? `<td class="mono">${r.avg.toFixed(2)}</td><td class="mono">${r.peak.toFixed(2)}</td>` : ""}
     <td class="mono">${r.dur_s.toFixed(1)} s</td><td class="mono">±${r.agree.toFixed(2)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+
+// ---------------------------------------------------------------- the trick playbook
+
+function renderPlaybook(primary) {
+  const body = $("#playbook-body");
+  const cards = (primary && primary.playbook) || [];
+  if (!cards.length) {
+    body.innerHTML = `<div class="hint">No playbook for this comparison: it needs two runs with driving data.</div>`;
+    return;
+  }
+  const card = (c) => `<article class="trick ${c.applies ? "on" : "off"}">
+    <header><h3>${esc(c.name)}</h3><span class="trick-group">${esc(c.group)}</span>
+      <span class="trick-badges">${c.advanced ? `<span class="badge-adv">advanced</span>` : ""}<span class="badge-use ${c.applies ? "yes" : "no"}">${c.applies ? "use it on this map" : "not needed here"}</span></span></header>
+    <p class="trick-why">${esc(c.why)}</p>
+    <ol class="trick-steps">${c.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>
+    <p class="trick-feel"><b>What it feels like:</b> ${esc(c.feel)}</p>
+    <p class="trick-mistakes"><b>Common mistakes:</b> ${c.mistakes.map(esc).join(" · ")}</p>
+    <p class="trick-drill"><b>Drill:</b> ${esc(c.drill)}</p>
+    ${c.places.length ? `<div class="trick-places"><b>Where on this map</b>${c.places.map((p, i) => `<button type="button" class="trick-place" data-card="${esc(c.id)}" data-i="${i}">
+        <span class="tp-where">${esc(p.where)}</span>${p.segment ? `<em>${esc(p.segment)}${p.seg_gap_ms != null ? ` · ${fmtGap(p.seg_gap_ms)} for you` : ""}</em>` : ""}
+        <span class="tp-detail">${esc(p.detail)}</span></button>`).join("")}</div>` : ""}
+  </article>`;
+  const ordered = [...cards].sort((a, b) => Number(b.applies) - Number(a.applies));
+  body.innerHTML = `<div class="pb-grid">${ordered.map(card).join("")}</div>`;
+  $$(".trick-place", body).forEach((b) => b.addEventListener("click", () => {
+    const c = cards.find((x) => x.id === b.dataset.card), p = c && c.places[+b.dataset.i];
+    if (!p) return;
+    setTab("overview");
+    setHighlight({ from: p.from_m, to: p.to_m, title: `${c.name}: ${p.where}`, section: null });
+    $("#lap-area").scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
 }

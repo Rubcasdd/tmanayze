@@ -736,11 +736,11 @@ function setTab(name) {
 
 function updateTabAvailability() {
   const has = !!state.compare;
-  ["sections", "corners", "coach", "track"].forEach((t) => {
+  ["sections", "corners", "playbook", "coach", "track"].forEach((t) => {
     const b = $(`.ws-bar .tab[data-tab="${t}"]`);
     b.disabled = !has;
   });
-  if (!has && ["sections", "corners", "coach", "track"].includes(state.tab)) setTab("overview");
+  if (!has && ["sections", "corners", "playbook", "coach", "track"].includes(state.tab)) setTab("overview");
 }
 
 // ---- adding ghosts
@@ -1005,7 +1005,7 @@ async function maybeLoadComparison() {
     });
     const subject = byId[state.subjectId];
     const refs = ids.map((id) => byId[id]).filter(Boolean);
-    const data = await postJson("/api/compare", { subject: strip(subject), references: refs.map(strip) });
+    const data = await postJson("/api/compare", { subject: strip(subject), references: refs.map(strip), tags: ((state.map && state.map.tags) || []).map(String).slice(0, 30) });
     if (token !== state.compareToken) return;
     state.compare = { key, data, ids: refs.map((r) => r.id) };
     state.highlight = null;
@@ -1067,6 +1067,7 @@ function renderComparison() {
     renderSections(data, chartable);
     renderCorners(data);
     renderPlan(primary);
+    renderPlaybook(primary);
   } else {
     $("#sections-grid").innerHTML = "";
     $("#corner-tbody").innerHTML = "";
