@@ -995,3 +995,7 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .ws-bar > .tabs { flex-shrink: 1; min-width: 120px; }
 .ws-bar > .ws-vs { flex-shrink: 1; min-width: 0; }
 @media (max-width: 760px) { .ws-bar { flex-wrap: wrap; } }
+.ws-bar { gap: 10px; }
+.ws-bar .tabs .tab { padding: 8px 10px; white-space: nowrap; }
+.ws-bar > .ws-vs { display: none; }
+@media (min-width: 1750px) { .ws-bar > .ws-vs { display: block; } }
