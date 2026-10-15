@@ -760,3 +760,11 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .plan-script { margin-top: 14px; }
 .plan-script summary { cursor: pointer; color: var(--ink-2); padding: 6px 0; }
 .plan-table { max-height: 420px; }
+
+.lessons { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; margin-bottom: 8px; }
+.lesson { background: linear-gradient(160deg, #141d33, #101728); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--radius); padding: 14px 16px; }
+.lesson h4 { font-size: 18px; margin-bottom: 4px; }
+.lesson-why { color: var(--ink-2); font-size: 13.5px; margin: 0 0 8px; }
+.lesson ol { margin: 0 0 10px; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
+.lesson-drill, .lesson-nums { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
+.lesson-nums b:first-child { color: var(--ink); }

@@ -280,6 +280,7 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         headings.append("Steering comparison")
         if plan:
             headings.append("Steering plan")
+            headings.append("How to do it")
         headings.append("Techniques to try")
     headings.append("Map character")
     if telemetry and cfg["walkthrough"]:
@@ -329,6 +330,15 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         )
     if telemetry and plan:
         parts.append(
+            "FOCUS AREAS ON THIS MAP: the candidates' titles and evidence only say WHERE the time went. Do not stop there. Rename each "
+            "title after the actual fix, taken from the MAP BLUEPRINT (for example 'Start the right-hand hold 12 m earlier at 700 m' or "
+            "'Match the references' wheel wiggle at 560-620 m'), and add a bullet **How to do it** before **Expected payoff**: two to "
+            "four numbered steps the player can follow (where to start, what value to hold or what wiggle rate and size, where to let go, "
+            "which line to aim for), using the numbers in the blueprint and LESSONS. Never write 'keep the throttle down', 'carry more "
+            "speed', 'stay on the line' or 'smooth the steering' as advice on its own: say exactly what to do with the wheel instead."
+        )
+    if telemetry and plan:
+        parts.append(
             "- `## Steering plan`: built ONLY from the MAP BLUEPRINT above. Walk the zones where the player differs, biggest first "
             "(five to eight of them), one bullet each: the distance range, what the references do with the wheel (direction and the "
             "value, or the hold time for a keyboard-style reference), what the player did, where each starts steering, and the one "
@@ -337,9 +347,16 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
             "rhythm of the lap (where the references hold left, where right, where the wheel is near centre) so the player can learn "
             "it as a pattern. Never invent a steering value that is not in the blueprint."
         )
+        parts.append(
+            "- `## How to do it`: a full lesson (a short paragraph plus the numbered steps, not a one-liner) for each entry in LESSONS (and one for any trick in WHAT THE FASTEST GHOSTS DO or the "
+            "SKILLS list that the player does not do): what it is in plain words, why it matters on THIS map, the numbered steps with the "
+            "player's numbers next to the references' numbers, what it should feel or look like, and one drill to repeat. Keep the "
+            "numbers; do not add steering values, speeds or distances that are not in the data. Be honest where the data cannot show "
+            "something (inputs the replay does not record)."
+        )
     if telemetry:
         parts.append(
-            "- `## Techniques to try`: built ONLY from the TECHNIQUE FINDINGS above, one `### ` sub-heading per finding (the "
+            "- `## Techniques to try`: built ONLY from the TECHNIQUE FINDINGS above (and, when present, the SKILLS list and WHAT THE FASTEST GHOSTS DO THAT THE PLAYER DOES NOT), one `### ` sub-heading per finding (the "
             "technique's name), each with bullets for **Where** (distance), **Signal** (quote the finding's numbers exactly; "
             "do not mix up different jumps or corners), **How to practise** and **Certainty** (measured, or hypothesis when the "
             "technique is inferred). Never recommend a technique that is not in the findings, and never put a speed drift on a "

@@ -48,6 +48,11 @@ coach that works from those measurements.
   612 m, you at 625 m"), and the references' steering script metre by metre. A keyboard-style reference is given as holds in
   seconds. The coach gets the same blueprint (with up to two more selected ghosts), a deeper bobsleigh/ice knowledge base,
   every corner's input script on those maps, and a `Steering plan` section that must use only the blueprint's numbers.
+- **How to do it:** the steering plan also measures how the fastest ghosts wiggle the wheel (reversals per second and size of a
+  swing) and how far your line is from theirs, and turns the numbers into step-by-step lessons (set the angle early and hold
+  it, the wheel wiggle, drive the ghosts' line) with drills, shown under the Steering plan and given to the coach, which now
+  retitles focus areas after the actual fix and writes a "How to do it" section. Per Nadeo's October 2022 update, ice wiggles
+  no longer add speed by themselves, so the wiggle lesson copies the pros' rate and size from the data and says so.
 - **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
   the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
   between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording

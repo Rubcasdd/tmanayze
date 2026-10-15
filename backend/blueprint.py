@@ -80,6 +80,60 @@ def _runs(vals: list[float], on: float, gap: int = 1) -> list[tuple[int, int]]:
     return out
 
 
+WIGGLE_MIN_AMP = 0.12       # a back-and-forth smaller than this (peak to peak) isn't a wiggle
+WIGGLE_ACTIVE_HZ = 1.0      # reversals per second above this count as wiggling
+
+
+def _zigzag(vals: list[float], min_amp: float) -> list[float]:
+    """The turning points of a signal, ignoring moves smaller than min_amp."""
+    if not vals:
+        return []
+    out: list[float] = []
+    cand, direction = vals[0], 0
+    for v in vals[1:]:
+        if direction >= 0 and v >= cand:
+            cand, direction = v, 1 if v > cand else direction
+        elif direction <= 0 and v <= cand:
+            cand, direction = v, -1 if v < cand else direction
+        elif abs(v - cand) >= min_amp:
+            out.append(cand)
+            cand, direction = v, -direction if direction else (1 if v > cand else -1)
+    out.append(cand)
+    return out
+
+
+def wiggle_stats(points: list[dict], a_m: float, b_m: float, key: str, speed_key: str) -> dict | None:
+    """How much the wheel is wiggled over a stretch: reversals per second and the typical size of one swing."""
+    seg = [p for p in points if a_m <= p["distance_m"] <= b_m]
+    if len(seg) < 6:
+        return None
+    ext = _zigzag([p[key] for p in seg], WIGGLE_MIN_AMP)
+    secs = 0.0
+    for p, q in zip(seg, seg[1:]):
+        secs += (q["distance_m"] - p["distance_m"]) / max(5.0, p[speed_key] / 3.6)
+    if secs <= 0.1:
+        return None
+    swings = [abs(y - x) for x, y in zip(ext, ext[1:])]
+    return {"hz": max(0, len(ext) - 1) / secs, "amp": statistics.fmean(swings) if swings else 0.0, "secs": secs}
+
+
+def line_offset(points: list[dict], a_m: float, b_m: float) -> float | None:
+    """How far to the right (+) or left (-) of the reference's line the player drives, in metres, on average."""
+    seg = [(i, p) for i, p in enumerate(points) if a_m <= p["distance_m"] <= b_m]
+    if len(seg) < 3:
+        return None
+    vals = []
+    for i, p in seg:
+        a, b = points[max(0, i - 1)], points[min(len(points) - 1, i + 1)]
+        dx, dz = b["reference_x"] - a["reference_x"], b["reference_z"] - a["reference_z"]
+        m = (dx * dx + dz * dz) ** 0.5
+        if m < 0.01:
+            continue
+        dx, dz = dx / m, dz / m
+        vals.append((p["x"] - p["reference_x"]) * -dz + (p["z"] - p["reference_z"]) * dx)  # right of travel on the map (x right, z down)
+    return statistics.fmean(vals) if vals else None
+
+
 def build(points_by_ref: dict[str, list[dict]], primary_id: str, analog: bool = True) -> dict | None:
     """The blueprint from every reference's aligned points. None when there isn't enough to say anything."""
     refs = {rid: pts for rid, pts in points_by_ref.items() if len(pts) >= 20}
@@ -166,6 +220,15 @@ def build(points_by_ref: dict[str, list[dict]], primary_id: str, analog: bool = 
             "you_hold_s": round(sum(1 for x in y_seg if abs(x) >= run_on) * GRID_M / v_ms, 2),
         })
     for z in zones:
+        # the wiggle and the line, from the unsmoothed points
+        ref_w = [w for w in (wiggle_stats(pts, z["from_m"], z["to_m"], "reference_steer", "reference_speed") for pts in refs.values()) if w]
+        you_w = wiggle_stats(primary, z["from_m"], z["to_m"], "subject_steer", "subject_speed")
+        z["ref_wig_hz"] = round(statistics.fmean(w["hz"] for w in ref_w), 1) if ref_w else None
+        z["ref_wig_amp"] = round(statistics.fmean(w["amp"] for w in ref_w), 2) if ref_w else None
+        z["you_wig_hz"] = round(you_w["hz"], 1) if you_w else None
+        z["you_wig_amp"] = round(you_w["amp"], 2) if you_w else None
+        offs = [o for o in (line_offset(pts, z["from_m"], z["to_m"]) for pts in refs.values()) if o is not None]
+        z["line_off_m"] = round(statistics.fmean(offs), 1) if offs else None
         confidence = 1.0 / (1.0 + 3.0 * z["agree"])  # zones where the references agree matter more than ones they split on
         z["score"] = round((max(0, z["time_ms"]) / 8 + 60 * abs(z["you_avg"] - z["ref_avg"])) * confidence, 1)
         z["text"] = zone_text(z, analog)
@@ -174,8 +237,16 @@ def build(points_by_ref: dict[str, list[dict]], primary_id: str, analog: bool = 
     zones.sort(key=lambda z: -z["score"])
     zones = sorted(zones[:MAX_ZONES], key=lambda z: z["from_m"])
 
+    whole = {"ref": [wiggle_stats(pts, 0, total, "reference_steer", "reference_speed") for pts in refs.values()], "you": wiggle_stats(primary, 0, total, "subject_steer", "subject_speed")}
+    ref_whole = [w for w in whole["ref"] if w]
+    wig = {
+        "ref_hz": round(statistics.fmean(w["hz"] for w in ref_whole), 1) if ref_whole else None,
+        "ref_amp": round(statistics.fmean(w["amp"] for w in ref_whole), 2) if ref_whole else None,
+        "you_hz": round(whole["you"]["hz"], 1) if whole["you"] else None,
+        "you_amp": round(whole["you"]["amp"], 2) if whole["you"] else None,
+    }
     return {
-        "refs": len(refs), "style": "analog" if analog else "digital",
+        "refs": len(refs), "style": "analog" if analog else "digital", "wiggle": wig,
         "series": {
             "d": [round(x) for x in grid], "you": [round(x, 2) for x in you], "median": [round(x, 2) for x in med],
             "lo": [round(x, 2) for x in lo], "hi": [round(x, 2) for x in hi],
@@ -207,7 +278,19 @@ def zone_text(z: dict, analog: bool) -> str:
         fix = f"you steer {z['you_dir']} {abs(z['you_avg']):.2f} (peak {abs(z['you_peak']):.2f}) - ease it to about {abs(z['ref_avg']):.2f}"
     else:
         fix = f"you steer {z['you_dir']} {abs(z['you_avg']):.2f} (peak {abs(z['you_peak']):.2f}) - add to about {abs(z['ref_avg']):.2f}"
-    return f"{where}: the references steer {z['ref_dir']} {abs(z['ref_avg']):.2f} on average (peak {abs(z['ref_peak']):.2f}); {fix}{onset} ({agree})"
+    return f"{where}: the references steer {z['ref_dir']} {abs(z['ref_avg']):.2f} on average (peak {abs(z['ref_peak']):.2f}); {fix}{onset}{_extras(z)} ({agree})"
+
+
+def _extras(z: dict) -> str:
+    """The wiggle and the line, when they differ enough to be worth saying."""
+    out = ""
+    r, y = z.get("ref_wig_hz"), z.get("you_wig_hz")
+    if r is not None and y is not None and (abs(r - y) >= 0.6 or max(r, y) >= WIGGLE_ACTIVE_HZ):
+        out += f"; wheel wiggle: the references reverse {r:.1f} times a second with swings of about {z['ref_wig_amp']:.2f}, you {y:.1f} a second with swings of {z['you_wig_amp']:.2f}"
+    off = z.get("line_off_m")
+    if off is not None and abs(off) >= 1.5:
+        out += f"; your line is {abs(off):.1f} m to the {'right' if off > 0 else 'left'} of the references'"
+    return out
 
 
 def blueprint_text(bp: dict | None, deep: bool = False) -> str:
@@ -233,4 +316,98 @@ def blueprint_text(bp: dict | None, deep: bool = False) -> str:
             lines.append(f"- {z['text']}; time {z['time_ms'] / 1000:+.3f}s over this stretch")
     else:
         lines.append("ZONES: the player's steering follows the references' everywhere within the thresholds.")
+    return "\n".join(lines)
+
+
+def lessons(bp: dict | None, bob: bool) -> list[dict]:
+    """Step-by-step lessons with the player's and the references' numbers in them. Each is
+    {id, title, why, steps[], drill, yours, theirs}; the same text is shown in the app and given to the coach."""
+    if not bp:
+        return []
+    out: list[dict] = []
+    zones = sorted(bp["zones"], key=lambda z: -z["score"])
+    analog = bp["style"] == "analog"
+    wig = bp.get("wiggle") or {}
+
+    # 1. set the angle early and hold it
+    movers = [z for z in zones if z["ref_dir"] != "straight"][:3]
+    if movers:
+        z = movers[0]
+        start_ref = z["ref_onset_m"]
+        steps = []
+        if start_ref is not None:
+            if z["you_onset_m"] is None:
+                late = ""
+            elif abs(z["you_onset_m"] - start_ref) < 8:
+                late = " (you start at about the same place: the difference is in how much you hold)"
+            else:
+                late = f" (you start at {z['you_onset_m']:.0f} m, {abs(z['you_onset_m'] - start_ref):.0f} m {'later' if z['you_onset_m'] > start_ref else 'earlier'})"
+            steps.append(f"Start steering {z['ref_dir']} at {start_ref:.0f} m{late}, before the bend, not in it.")
+        steps.append(
+            f"Hold about {abs(z['ref_avg']):.2f} of full lock{' (peaking near ' + format(abs(z['ref_peak']), '.2f') + ')' if analog else ''} until {z['to_m']:.0f} m"
+            if analog else f"Hold {z['ref_dir']} for about {z['ref_hold_s']:.1f} s until {z['to_m']:.0f} m"
+        )
+        steps.append("Let go smoothly and do not correct for about half a second: on ice the car keeps going the way it was already moving.")
+        out.append({
+            "id": "hold", "title": "Set the angle early and hold it",
+            "why": "Ice gives almost no sideways grip, so the wheel decides where the car points long before it decides where the car goes. Late or repeated corrections cost the speed that a steady hold keeps.",
+            "steps": steps,
+            "drill": f"Drive {z['from_m'] - 60:.0f}-{z['to_m'] + 20:.0f} m again and only try to start at {start_ref:.0f} m and hold {abs(z['ref_avg']):.2f}; ignore everything else." if start_ref is not None else f"Drive {z['from_m']:.0f}-{z['to_m']:.0f} m again and only hold {z['ref_dir']} about {abs(z['ref_avg']):.2f}.",
+            "yours": f"{z['from_m']:.0f}-{z['to_m']:.0f} m: you steer {z['you_dir']} {abs(z['you_avg']):.2f}", "theirs": f"they steer {z['ref_dir']} {abs(z['ref_avg']):.2f}",
+        })
+
+    # 2. the wiggle
+    r_hz, y_hz = wig.get("ref_hz"), wig.get("you_hz")
+    if r_hz is not None and r_hz >= WIGGLE_ACTIVE_HZ:
+        r_amp, y_amp = wig.get("ref_amp") or 0.0, wig.get("you_amp") or 0.0
+        wzones = [z for z in zones if z.get("ref_wig_hz") and z["ref_wig_hz"] >= WIGGLE_ACTIVE_HZ and z.get("you_wig_hz") is not None][:3]
+        steps = [
+            f"Hold the steering you are meant to have at that spot, then add small alternating taps on top of it: about {r_hz:.1f} reversals a second.",
+            (f"Each swing goes about {r_amp:.2f} of full lock from one side to the other (about {r_amp / 2:.2f} either side of the value you are holding). On a keyboard that is a short tap each way; on a pad or wheel a quick flick and back.") if analog else
+            "Keep each tap short and even; the rhythm matters more than the size.",
+            "Keep the rhythm steady: do not wiggle through a gear shift (about 100, 160, 235 and 341 km/h), hold the wheel still for those moments.",
+            "Stop wiggling when the references go quiet (the straights) and when the car is in the air.",
+        ]
+        where = "; ".join(f"{z['from_m']:.0f}-{z['to_m']:.0f} m ({z['ref_wig_hz']:.1f}/s vs your {z['you_wig_hz']:.1f}/s)" for z in wzones)
+        out.append({
+            "id": "wiggle", "title": "The wheel wiggle",
+            "why": "The fastest runs on this map do not hold the wheel perfectly still: they ride a small, steady back-and-forth on top of the held steering. "
+                   "Note: Nadeo's October 2022 update says ice wiggles no longer add speed by themselves, so treat this as the pros' way of steering the slide, and copy the rate and the size rather than inventing your own.",
+            "steps": steps,
+            "drill": ("Practise the rhythm on a long, straight-ish ice stretch first" + (f" (for example {wzones[0]['from_m']:.0f}-{wzones[0]['to_m']:.0f} m)" if wzones else "") +
+                      ", counting the reversals against a replay of the ghost; the Trackmania Exchange bobsleigh training packs (check which physics version they were built for) are good places to rehearse it."),
+            "yours": f"you reverse {y_hz:.1f} a second with swings of {y_amp:.2f}" if y_hz is not None else "", "theirs": f"they reverse {r_hz:.1f} a second with swings of {r_amp:.2f}" + (f"; strongest at {where}" if where else ""),
+        })
+
+    # 3. the line
+    offs = [z for z in zones if z.get("line_off_m") is not None and abs(z["line_off_m"]) >= 1.5][:3]
+    if offs:
+        z = offs[0]
+        side = "right" if z["line_off_m"] > 0 else "left"
+        other = "left" if side == "right" else "right"
+        out.append({
+            "id": "line", "title": "Drive the ghosts' line",
+            "why": "On a bank or between walls the line sets how much of the bend the car rides and how much speed it carries out. Being a few metres off the ghosts' line is usually a steering difference from earlier in the section.",
+            "steps": [
+                f"At {z['from_m']:.0f}-{z['to_m']:.0f} m you are about {abs(z['line_off_m']):.1f} m to the {side} of the references: aim {abs(z['line_off_m']):.1f} m further {other}.",
+                "To move there, change the steering earlier and by a small amount: a small input 60-80 m before has the effect a big one cannot have in the bend.",
+                "Replay the stretch and check the gap to the references' line, not just the time.",
+            ],
+            "drill": f"Drive {z['from_m'] - 80:.0f}-{z['to_m']:.0f} m with one aim: stay {abs(z['line_off_m']):.1f} m further {other}.",
+            "yours": f"{abs(z['line_off_m']):.1f} m {side} of the references at {z['from_m']:.0f}-{z['to_m']:.0f} m", "theirs": "the references' line",
+        })
+    return out
+
+
+def lessons_text(items: list[dict]) -> str:
+    """The lessons as prompt text: the coach re-states these with its own explanation and must keep the numbers."""
+    if not items:
+        return ""
+    lines = ["LESSONS (how to do it, with the measured numbers; explain them to the player step by step and keep every number):"]
+    for it in items:
+        lines.append(f"- {it['title']}: {it['why']}")
+        lines.extend(f"    {i}. {s}" for i, s in enumerate(it["steps"], start=1))
+        lines.append(f"    Drill: {it['drill']}")
+        if it["yours"] or it["theirs"]:
+            lines.append(f"    Numbers: {it['yours']}; {it['theirs']}.")
     return "\n".join(lines)
