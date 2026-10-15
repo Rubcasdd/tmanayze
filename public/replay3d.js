@@ -32,7 +32,7 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    hudSize: 1, show: { captions: true, timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
+    hudSize: 1, show: { blocks: true, captions: true, timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
     rec: null, root: null, shake: 0, others: [], keys: {}, free: null, captions: [], spoken: new Set(), speak: false, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
   };
 
@@ -145,16 +145,45 @@ const Replay3D = (() => {
     return (gl.glowTex = new T.CanvasTexture(c));
   }
 
-  function roadTexture(T) {
-    const c = document.createElement("canvas"); c.width = 128; c.height = 256;
+  // A texture per kind of ground, one block (32 m) long, with the block seam at its ends, so the road reads like the game's.
+  // `plain` leaves out the edge lines: that one is for the platform blocks under the road.
+  const TEX = {};
+  const SURF = {
+    tech: { base: "#3a3e49", edge: "#d5d8e2", rough: 0.55, metal: 0.1 },
+    bump: { base: "#363a47", edge: "#d5d8e2", rough: 0.7, metal: 0.05 },
+    plastic: { base: "#6f84dc", edge: "#ffffff", rough: 0.35, metal: 0.05 },
+    dirt: { base: "#6b4d31", edge: "#a07c52", rough: 0.95, metal: 0 },
+    grass: { base: "#3f8a3b", edge: "#8fd37c", rough: 1, metal: 0 },
+    ice: { base: "#c6eaf8", edge: "#ffffff", rough: 0.1, metal: 0.02 },
+    water: { base: "#2a6aa8", edge: "#9fd0ff", rough: 0.2, metal: 0 },
+    unknown: { base: "#3a3e49", edge: "#d5d8e2", rough: 0.6, metal: 0.05 },
+  };
+  function surfaceTexture(T, kind, plain) {
+    const key = kind + (plain ? "-p" : "");
+    if (TEX[key]) return TEX[key];
+    const S = 256, def = SURF[kind] || SURF.unknown, c = document.createElement("canvas");
+    c.width = c.height = S;
     const x = c.getContext("2d");
-    x.fillStyle = "#cfd3dc"; x.fillRect(0, 0, 128, 256);
-    for (let i = 0; i < 2600; i++) { const v = 150 + Math.random() * 90; x.fillStyle = `rgba(${v},${v},${v + 8},0.22)`; x.fillRect(Math.random() * 128, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2); }
-    x.fillStyle = "rgba(255,255,255,0.95)"; x.fillRect(6, 0, 3, 256); x.fillRect(119, 0, 3, 256);                 // edge lines
-    x.fillStyle = "rgba(255,255,255,0.8)"; for (let y = 0; y < 256; y += 64) x.fillRect(62, y, 4, 34);               // centre dashes
+    x.fillStyle = def.base; x.fillRect(0, 0, S, S);
+    for (let i = 0; i < 3600; i++) { x.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.09)"; x.fillRect(Math.random() * S, Math.random() * S, 1 + Math.random() * 3, 1 + Math.random() * 3); }
+    if (kind === "plastic") { x.fillStyle = "rgba(255,255,255,0.13)"; for (let i = 64; i < S; i += 64) { x.fillRect(i, 0, 2, S); x.fillRect(0, i, S, 2); } }
+    if (kind === "ice") { x.strokeStyle = "rgba(255,255,255,0.4)"; x.lineWidth = 2; for (let i = 0; i < 26; i++) { const px = Math.random() * S, py = Math.random() * S; x.beginPath(); x.moveTo(px, py); x.lineTo(px + (Math.random() - 0.5) * 30, py + 20 + Math.random() * 60); x.stroke(); } }
+    if (!plain) {
+      x.fillStyle = def.edge; x.fillRect(10, 0, 10, S); x.fillRect(S - 20, 0, 10, S);                       // the road's edge lines
+      x.fillStyle = "rgba(0,0,0,0.28)"; x.fillRect(20, 0, 2, S); x.fillRect(S - 22, 0, 2, S);
+      if (kind === "tech" || kind === "unknown") { x.fillStyle = "rgba(255,255,255,0.35)"; for (let y = 8; y < S; y += 64) x.fillRect(S / 2 - 2, y, 4, 30); }
+      if (kind === "bump") { x.fillStyle = "rgba(255,255,255,0.11)"; for (let y = 0; y < S; y += 24) x.fillRect(22, y, S - 44, 9); }
+      if (kind === "dirt") { x.fillStyle = "rgba(0,0,0,0.2)"; x.fillRect(S * 0.3 - 9, 0, 18, S); x.fillRect(S * 0.7 - 9, 0, 18, S); }
+    }
+    x.fillStyle = "rgba(0,0,0,0.5)"; x.fillRect(0, 0, S, 3); x.fillRect(0, S - 3, S, 3);                    // the seam between two blocks
+    if (plain) { x.fillRect(0, 0, 3, S); x.fillRect(S - 3, 0, 3, S); }
     const tex = new T.CanvasTexture(c);
-    tex.wrapS = T.ClampToEdgeWrapping; tex.wrapT = T.RepeatWrapping; tex.anisotropy = 8;
-    return tex;
+    tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.anisotropy = 8; tex.encoding = T.sRGBEncoding;
+    return (TEX[key] = tex);
+  }
+  function surfaceMaterial(T, kind, plain) {
+    const def = SURF[kind] || SURF.unknown;
+    return new T.MeshStandardMaterial({ map: surfaceTexture(T, kind, plain), roughness: def.rough, metalness: def.metal, side: T.DoubleSide, transparent: kind === "ice", opacity: kind === "ice" ? 0.93 : 1 });
   }
 
   // ------------------------------------------------------------------ effects: particles, streaks, arcs
@@ -352,12 +381,12 @@ const Replay3D = (() => {
     const pts = primary.points, n = pts.length;
     const lab = state.surface && state.surface.labels && state.surface.labels.length === n ? state.surface.labels : null;
     R.lab = lab;
-    const W = 14;
+    const W = 16;
     let minY = Infinity, cx = 0, cz = 0;
     for (const p of pts) { minY = Math.min(minY, p.y); cx += p.x / n; cz += p.z / n; }
 
     // the road: a ribbon along the driven line, banked the way the car was, with markings and the ground colour
-    const pos = new Float32Array(n * 6), col = new Float32Array(n * 6), uv = new Float32Array(n * 4);
+    const pos = new Float32Array(n * 6), uv = new Float32Array(n * 4);
     const P = new T.Vector3(), F = new T.Vector3(), U = new T.Vector3(), L = new T.Vector3(), C = new T.Color();
     const frame = (i) => {
       const p = pts[i], q = pts[Math.min(n - 1, i + 1)], o = pts[Math.max(0, i - 1)];
@@ -375,9 +404,7 @@ const Replay3D = (() => {
       for (let s = 0; s < 2; s++) {
         const side = s === 0 ? 1 : -1;
         pos.set([P.x + L.x * W / 2 * side - U.x * 0.55, P.y + L.y * W / 2 * side - U.y * 0.55, P.z + L.z * W / 2 * side - U.z * 0.55], (i * 2 + s) * 3);
-        uv.set([s, pts[i].distance_m / 12], (i * 2 + s) * 2);
-        C.setHex(GROUND[lab ? lab[i] : "unknown"] || GROUND.unknown);
-        col.set([C.r, C.g, C.b], (i * 2 + s) * 3);
+        uv.set([s, pts[i].distance_m / 32], (i * 2 + s) * 2);
       }
       // the barrier walls: a short vertical strip on each edge
       for (let side = 0; side < 2; side++) {
@@ -394,8 +421,13 @@ const Replay3D = (() => {
       geo.setIndex(idx); geo.computeVertexNormals();
       return geo;
     };
-    const road = new T.Mesh(strip(pos, [["color", col, 3], ["uv", uv, 2]]), new T.MeshStandardMaterial({ map: roadTexture(T), vertexColors: true, side: T.DoubleSide, roughness: 0.62, metalness: 0.08 }));
-    road.receiveShadow = true; scene.add(road);
+    // one mesh per kind of ground, each with its own surface, so tech, plastic, dirt, grass and ice look different
+    const posAttr = new T.BufferAttribute(pos, 3), uvAttr = new T.BufferAttribute(uv, 2), byKind = {};
+    for (let i = 0; i < n - 1; i++) { const a = i * 2, k = lab ? lab[i] || "unknown" : "unknown"; (byKind[k] = byKind[k] || []).push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (const [k, idx] of Object.entries(byKind)) {
+      const g = new T.BufferGeometry(); g.setAttribute("position", posAttr); g.setAttribute("uv", uvAttr); g.setIndex(idx); g.computeVertexNormals();
+      const road = new T.Mesh(g, surfaceMaterial(T, k, false)); road.receiveShadow = true; scene.add(road);
+    }
     for (const [side, hex] of [[0, 0x8f7bff], [1, 0xffc247]]) {
       const w = new T.Mesh(strip(wall[side]), new T.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0.9, transparent: true, opacity: 0.55, side: T.DoubleSide, roughness: 0.4 }));
       scene.add(w);
@@ -403,6 +435,7 @@ const Replay3D = (() => {
 
     // terrain far below, with trees, and the pillars the track stands on
     const base = minY - 95, SZ = 7600, SEG = 150;
+    gl.base = base;
     const tg = new T.PlaneGeometry(SZ, SZ, SEG, SEG); tg.rotateX(-Math.PI / 2);
     const tp = tg.attributes.position, tc = new Float32Array(tp.count * 3);
     for (let i = 0; i < tp.count; i++) {
@@ -489,6 +522,98 @@ const Replay3D = (() => {
     R.sf = new T.Vector3(0, 0, 1); R.su = new T.Vector3(0, 1, 0); R.camPos = new T.Vector3(); R.camLook = new T.Vector3();
     R.deltas = pts.map((p) => p.delta_ms); R.ptT = pts.map((p) => p.t_ms);
     R.map = null;
+  }
+
+  // ------------------------------------------------------------------ the map's own blocks around the road
+
+  // The map file lists each block's name, grid cell, level and facing, but not free blocks or custom items, and says nothing
+  // about a ramp's or curve's shape. So: flat pieces under the line are drawn as platforms (placed from the driven line,
+  // which is exact), pillars stand from their place down to the ground, and structures, decorations and stands are shown as
+  // left out. Ramps and curves are left to the road itself.
+  function addBlocks(data) {
+    const T = R.THREE, scene = gl.scene;
+    if (gl.blocks) { scene.remove(gl.blocks); gl.blocks.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+    const group = new T.Group(); group.visible = R.show.blocks; scene.add(group); gl.blocks = group;
+    const pts = R.primary.points, CELL = data.cell || 32, LV = data.level || 8, off = data.y_offset;
+    const grid = new Map(), key = (a, b) => a + "," + b;
+    pts.forEach((p, i) => { const k = key(Math.floor(p.x / 24), Math.floor(p.z / 24)); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); });
+    // the line point that runs through this block's footprint (and at about its height, when the heights are known)
+    const under = (cx, cz, guessY) => {
+      let best = -1, bd = Infinity;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+        const arr = grid.get(key(Math.floor(cx / 24) + a, Math.floor(cz / 24) + b));
+        if (!arr) continue;
+        for (const i of arr) {
+          const p = pts[i], dx = p.x - cx, dz = p.z - cz;
+          if (Math.abs(dx) > CELL / 2 || Math.abs(dz) > CELL / 2) continue;
+          if (guessY != null && Math.abs(p.y - guessY) > 12) continue;
+          const d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+      }
+      return best;
+    };
+    const list = data.blocks.map((b) => {
+      const cx = b.x * CELL + CELL / 2, cz = b.z * CELL + CELL / 2;
+      return { b, cx, cz, i: b.k === "flat" ? under(cx, cz, off != null ? b.y * LV + off + 4 : null) : -1 };
+    });
+    // the platforms under the line fix the height of everything else, by the number of levels between them
+    const refs = list.filter((o) => o.i >= 0).map((o) => { o.top = pts[o.i].y - 0.78; return o; });
+    if (!refs.length) { R.blockInfo = { total: data.total, drawn: 0, note: "none of the map's blocks line up with the road" }; return; }
+    // a block takes its height from a platform under the line only if it is close to it; anything further off is left out
+    const near = (o, max) => { let best = null, bd = Infinity; for (const r of refs) { const d = Math.max(Math.abs(r.b.x - o.b.x), Math.abs(r.b.z - o.b.z)); if (d < bd) { bd = d; best = r; } } return bd <= max ? best : null; };
+    const M = new T.Matrix4(), Q = new T.Quaternion(), Sc = new T.Vector3(), Pp = new T.Vector3(), Y = new T.Vector3(0, 1, 0);
+    const slabs = {}, pillars = [];
+    for (const o of list) {
+      const k = o.b.k;
+      if (k === "flat") {
+        // a flat piece on the same level as the road's platforms is on the same plane: draw it, so the platform reads as blocks
+        const ref = o.i >= 0 ? o : near(o, 3);
+        if (!ref || o.b.y !== ref.b.y) continue;
+        let rot = (o.b.d || 0) * Math.PI / 2;
+        if (o.i >= 0) { const p = pts[o.i], hd = p.fx != null ? Math.atan2(p.fx, p.fz) : 0; rot = Math.round(hd / (Math.PI / 2)) * (Math.PI / 2); }   // run the way the road runs through it
+        (slabs[o.b.s || "tech"] = slabs[o.b.s || "tech"] || []).push([o.cx, ref.top - 1.1, o.cz, rot]);
+      } else if (k === "pillar") {
+        // a pillar close to the road and on a level at or below it stands from there down to the ground
+        const ref = near(o, 2);
+        if (!ref || o.b.y > ref.b.y) continue;
+        const top = ref.top + (o.b.y - ref.b.y) * LV, bot = gl.base + terrainH(o.cx, o.cz), h = top - bot;
+        if (h > 3 && h < 400) pillars.push([o.cx, bot + h / 2, o.cz, h]);
+      }
+    }
+    let drawn = 0;
+    for (const [kind, arr] of Object.entries(slabs)) {
+      const mesh = new T.InstancedMesh(new T.BoxGeometry(CELL - 0.3, 2.2, CELL - 0.3), surfaceMaterial(T, kind, true), arr.length);
+      arr.forEach((a, i) => { Q.setFromAxisAngle(Y, a[3]); M.compose(Pp.set(a[0], a[1], a[2]), Q, Sc.set(1, 1, 1)); mesh.setMatrixAt(i, M); });
+      mesh.receiveShadow = true; mesh.castShadow = true; group.add(mesh); drawn += arr.length;
+    }
+    if (pillars.length) {
+      const pm = new T.InstancedMesh(new T.BoxGeometry(3.4, 1, 3.4), new T.MeshStandardMaterial({ color: 0x5a6280, roughness: 0.6, metalness: 0.35 }), pillars.length);
+      pillars.forEach((a, i) => { M.compose(Pp.set(a[0], a[1], a[2]), Q.identity(), Sc.set(1, a[3], 1)); pm.setMatrixAt(i, M); });
+      pm.castShadow = true; group.add(pm);
+    }
+    R.blockInfo = { total: data.total, drawn, pillars: pillars.length, snapped: refs.length };
+  }
+
+  async function loadBlocks(mapUid, token) {
+    R.blockInfo = null; updateBlockNote("Reading the map's blocks…");
+    try {
+      const pts = R.primary.points, step = Math.max(1, Math.floor(pts.length / 800));
+      const data = await postJson("/api/blocks", { map_uid: mapUid, points: pts.filter((_, i) => i % step === 0).map((p) => [p.x, p.y, p.z]) });
+      if (token !== R.blockToken) return;
+      if (!data.available || !data.blocks.length) { R.blockInfo = { none: true }; updateBlockNote(); return; }
+      addBlocks(data);
+    } catch (e) { if (token === R.blockToken) R.blockInfo = { none: true }; }
+    if (token === R.blockToken) updateBlockNote();
+  }
+
+  function updateBlockNote(text) {
+    const el = R.root && R.root.querySelector(".rp-blocknote");
+    if (!el) return;
+    const i = R.blockInfo;
+    el.textContent = text || (!i ? "" : i.none ? "The map file couldn't be read, so only the road is drawn."
+      : !i.drawn && !i.pillars ? `The map has ${i.total} blocks but none line up with the road, so only the road is drawn (free blocks and custom items are not in the file).`
+      : `From the map file: ${i.drawn} platform blocks and ${i.pillars || 0} pillars around the road. Only pieces that can be placed from the road itself are drawn: ramps, curves, free blocks and custom items are not in the file, so some maps show little.`);
   }
 
   // ------------------------------------------------------------------ cameras
@@ -1199,8 +1324,9 @@ const Replay3D = (() => {
             ${chk("rp-ghostvis", "Ghost", true)}${chk("rp-fxon", "Spray, sparks, streaks", true)}
             ${chk("rp-trails", "Trails", true)}${chk("rp-arcs", "Jump arcs", true)}
             ${chk("rp-gates", "Checkpoints", true)}${chk("rp-shadows", "Shadows", true)}
-            ${chk("rp-bars", "Cinematic bars", false)}
+            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-blocks", "Map blocks", true)}
           </div>
+          <p class="hint rp-blocknote"></p>
           <button type="button" class="btn quiet rp-drop" title="Pin a trackside camera here so the cars drive past it">Pin a trackside camera here</button>
         </section>
         <section><h3>On-screen display</h3>
@@ -1251,6 +1377,7 @@ const Replay3D = (() => {
     tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => { R.show.pad = v; saveHud(); }); tog(".rp-tower", (v) => { R.show.tower = v; saveHud(); });
     tog(".rp-timer", (v) => { R.show.timer = v; saveHud(); }); tog(".rp-inputs", (v) => { R.show.inputs = v; saveHud(); }); tog(".rp-mini", (v) => { R.show.mini = v; saveHud(); });
     tog(".rp-caps", (v) => { R.show.captions = v; saveHud(); });
+    tog(".rp-blocks", (v) => { R.show.blocks = v; if (gl.blocks) gl.blocks.visible = v; });
     q(".rp-speak").addEventListener("change", (e) => { R.speak = e.target.checked; if (!R.speak && window.speechSynthesis) window.speechSynthesis.cancel(); saveHud(); });
     q(".rp-hudsize").addEventListener("input", (e) => { R.hudSize = +e.target.value / 100; saveHud(); render(0, true); });
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
@@ -1362,6 +1489,7 @@ const Replay3D = (() => {
       R.key = key; R.loaded = true; R.t = 0; R.prevT = 0; R.playing = false; R.cam = { ...DEFAULT_CAM }; R.rate = 1; R.shotIdx = -1; R.clip = null; R.cuts = true;
       loadShots(); loadHud(); syncHudUi();
       R.captions = Captions.build(R.primary); R.spoken = new Set(); renderNotes();
+      R.blockToken = (R.blockToken || 0) + 1; gl.blocks = null; loadBlocks(me.map_uid, R.blockToken);
       root.querySelector(".rp-loading").hidden = true;
       renderShots(); renderAir(); resize();
       seek(0);
@@ -1376,6 +1504,7 @@ const Replay3D = (() => {
     async show() { R.visible = true; await ensure(); if (R.loaded) { R.last = performance.now(); resize(); } },
     hide() { R.visible = false; if (R.playing) pause(); stopRecord(); },
     captions: () => R.captions.map((k) => [Math.round(k.t0), k.title, k.tag]),
+    blockInfo: () => R.blockInfo,
     state: () => ({ particles: gl.parts ? Array.from(gl.parts.ttl).filter((x) => x > 0).length : 0, t: R.t, rate: R.rate, mode: R.cam.mode, loaded: R.loaded, shots: R.shots.length, clipBytes: R.lastClipBytes || 0, rec: !!R.rec, flights: R.flights.you.length }),
     // for checking: does the car turn the way the recorded steering says? (positive steer is right, a clockwise turn seen from above)
     probe() {
