@@ -732,6 +732,7 @@ function setTab(name) {
   if (name === "board") ensureBoardPage(state.board && state.board.offset ? state.board.offset : 0);
   if (name === "track" && typeof TrackPage !== "undefined") TrackPage.showTab();
   if (typeof Cockpit !== "undefined") { if (name === "cockpit") Cockpit.show(); else Cockpit.pause(); }
+  if (name === "progress" && typeof Progress !== "undefined") Progress.show();
   if (typeof Replay3D !== "undefined") { if (name === "replay") Replay3D.show(); else Replay3D.hide(); }
   if (name === "overview" && state.trackMap) requestAnimationFrame(drawTrackMap);
 }

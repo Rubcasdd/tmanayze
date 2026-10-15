@@ -32,8 +32,8 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    hudSize: 1, show: { timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
-    rec: null, root: null, shake: 0, others: [], keys: {}, free: null, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
+    hudSize: 1, show: { captions: true, timer: true, inputs: true, mini: true, tower: true, ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
+    rec: null, root: null, shake: 0, others: [], keys: {}, free: null, captions: [], spoken: new Set(), speak: false, ghostName: "ghost", flights: { you: [], ghost: [] }, landings: [],
   };
 
   // ------------------------------------------------------------------ samples
@@ -790,6 +790,38 @@ const Replay3D = (() => {
     });
   }
 
+  // the coach's captions: what is happening right now and what to change, shown while it happens
+  const CAP = { loss: "#ff5a73", gain: "#2fe3a2", note: "#ffc247" };
+  function wrap(c, text, maxW) {
+    const words = String(text).split(" "), lines = [];
+    let cur = "";
+    for (const w of words) { const t = cur ? cur + " " + w : w; if (cur && c.measureText(t).width > maxW) { lines.push(cur); cur = w; } else cur = t; }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function drawCaptions(c, w, h) {
+    const live = R.captions.filter((k) => R.t >= k.t0 && R.t <= k.t1).slice(0, 2);
+    if (!live.length) return;
+    const bw = clamp(w - 470, 300, 560), x = (w - bw) / 2;
+    let y = h - 14;
+    c.textBaseline = "alphabetic"; c.textAlign = "left";
+    for (const k of live.reverse()) {
+      const a = clamp(Math.min(R.t - k.t0, k.t1 - R.t) / 350, 0, 1);
+      c.font = `600 13px Barlow, sans-serif`;
+      const lines = k.lines.flatMap((l) => wrap(c, l, bw - 30)).slice(0, 5), bh = 30 + lines.length * 17;
+      y -= bh;
+      c.globalAlpha = a;
+      c.fillStyle = "rgba(8,12,22,0.78)"; c.fillRect(x, y, bw, bh);
+      c.fillStyle = CAP[k.kind] || CAP.note; c.fillRect(x, y, 4, bh);
+      c.font = `700 15px "Barlow Condensed", sans-serif`; c.fillStyle = "#fff"; c.fillText(k.title, x + 14, y + 20);
+      if (k.tag) { c.textAlign = "right"; c.fillStyle = CAP[k.kind] || CAP.note; c.fillText(k.tag, x + bw - 12, y + 20); c.textAlign = "left"; }
+      c.font = `600 13px Barlow, sans-serif`; c.fillStyle = "#d6dcef";
+      lines.forEach((l, i) => c.fillText(l, x + 14, y + 39 + i * 17));
+      c.globalAlpha = 1;
+      y -= 8;
+    }
+  }
+
   function drawHud() {
     const cv = gl.hud;
     if (!cv.clientWidth) return;
@@ -856,6 +888,7 @@ const Replay3D = (() => {
     if (R.slip && R.slip > 9 && !fl) { pill(c, 12, h - (R.show.pad ? 168 : 148), 110, 28, "rgba(255,150,40,0.85)", "#1d1103", `DRIFT ${Math.round(R.slip)}°`, `800 17px "Barlow Condensed", sans-serif`); }
     if (R.show.inputs) drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
     if (R.show.inputs && R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
+    if (R.show.captions) drawCaptions(c, w, h);
     if (R.show.bars) { c.fillStyle = "#000"; c.fillRect(0, 0, w, h * 0.1); c.fillRect(0, h * 0.9, w, h * 0.1); }
   }
 
@@ -885,6 +918,7 @@ const Replay3D = (() => {
       c.fillStyle = i === R.shotIdx ? "#8f7bff" : "#5b6b92"; const x = X(s.t);
       c.beginPath(); c.moveTo(x - 5, 0); c.lineTo(x + 5, 0); c.lineTo(x, 9); c.fill();
     }
+    for (const k of R.captions) { c.fillStyle = CAP[k.kind] || CAP.note; c.beginPath(); c.arc(X(k.t0), h - 5, 3, 0, 7); c.fill(); }   // the coach's notes
     c.strokeStyle = "#fff"; c.lineWidth = 2; c.beginPath(); c.moveTo(X(R.t), 0); c.lineTo(X(R.t), h); c.stroke();
   }
 
@@ -981,9 +1015,9 @@ const Replay3D = (() => {
     box.querySelectorAll("button[data-t0]").forEach((b) => b.addEventListener("click", () => playClip(+b.dataset.t0, +b.dataset.t1, 0.25)));
   }
 
-  function playClip(t0, t1, rate) {
+  function playClip(t0, t1, rate, mode) {
     cutsOff();
-    R.cam = { ...R.cam, mode: "duel", dist: 11, height: 3, yaw: 0, pitch: 0 };
+    R.cam = { ...R.cam, mode: mode || "duel", dist: mode === "chase" ? 6.8 : 11, height: mode === "chase" ? 2.3 : 3, yaw: 0, pitch: 0 };
     R.clip = { end: t1 };
     setRate(rate); seek(t0); play();
   }
@@ -991,7 +1025,36 @@ const Replay3D = (() => {
   // ------------------------------------------------------------------ transport
 
   function cutsOff() { if (R.cuts && R.shots.length) { R.cuts = false; const c = R.root.querySelector(".rp-cuts"); if (c) c.checked = false; } }
-  function seek(t) { R.t = clamp(t, 0, R.tEnd); R.shotIdx = -2; checkShots(true); R.prevT = R.t; render(0, true); }
+  function seek(t) {
+    R.t = clamp(t, 0, R.tEnd); R.shotIdx = -2; checkShots(true); R.prevT = R.t;
+    R.spoken = new Set(R.captions.map((k, i) => (k.t0 < R.t ? i : -1)).filter((i) => i >= 0));      // captions already behind you are not read out
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    render(0, true);
+  }
+
+  // read the captions aloud as they come up (only while playing, once each)
+  function speakCaptions() {
+    if (!R.speak || !window.speechSynthesis) return;
+    R.captions.forEach((k, i) => {
+      if (R.spoken.has(i) || R.t < k.t0 || R.t > k.t0 + 700) return;
+      R.spoken.add(i);
+      const cost = k.tag ? (k.tag.startsWith("−") ? ` costs ${k.tag.slice(1).replace(" s", " seconds")}.` : ` gains ${k.tag.slice(1).replace(" s", " seconds")}.`) : ".";
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(`${k.title.replace(/^Steering: /, "Steering, ")}${cost} ${k.lines.join(". ")}`.replace(/→/g, "to"));
+        u.rate = 1.15; window.speechSynthesis.speak(u);
+      } catch (e) { /* speech is a bonus */ }
+    });
+  }
+
+  function renderNotes() {
+    const box = R.root.querySelector(".rp-notes");
+    if (!box) return;
+    if (!R.captions.length) { box.innerHTML = `<p class="hint">Nothing stands out on this lap.</p>`; return; }
+    box.innerHTML = R.captions.map((k, i) => `<button type="button" class="rp-note" data-i="${i}">
+      <span class="rp-nt">${mmss(k.t0 + 1300).slice(1, 7)}</span><span class="rp-nm"><b>${esc(k.title)}</b>${k.tag ? ` <em class="${k.kind}">${esc(k.tag)}</em>` : ""}<small>${esc(k.lines[0])}</small></span><span class="rp-ng">&#9654;</span></button>`).join("");
+    box.querySelectorAll(".rp-note").forEach((b) => b.addEventListener("click", () => { const k = R.captions[+b.dataset.i]; playClip(Math.max(0, k.t0 - 300), k.t1 + 500, 0.5, "chase"); }));
+  }
   function stepBy(ms) { pause(); seek(R.t + ms); }
 
   function play() {
@@ -1012,6 +1075,7 @@ const Replay3D = (() => {
       if (R.t >= R.tEnd) { R.t = R.tEnd; R.playing = false; stopRecord(); }
       if (R.clip && R.t >= R.clip.end) { R.clip = null; R.playing = false; setRate(1); }
       checkShots(false);
+      speakCaptions();
     }
     moveFree(dt);
     render(R.playing ? dt : 0, !R.playing);
@@ -1080,20 +1144,22 @@ const Replay3D = (() => {
 
   // ------------------------------------------------------------------ HUD settings, remembered between visits
 
-  const HUD_KEYS = ["timer", "inputs", "mini", "tower", "pad"];
-  function saveHud() { try { localStorage.setItem("tm-hud", JSON.stringify({ size: R.hudSize, ...Object.fromEntries(HUD_KEYS.map((k) => [k, R.show[k]])) })); } catch (e) { /* a convenience only */ } }
+  const HUD_KEYS = ["timer", "inputs", "mini", "tower", "pad", "captions"];
+  function saveHud() { try { localStorage.setItem("tm-hud", JSON.stringify({ size: R.hudSize, speak: R.speak, ...Object.fromEntries(HUD_KEYS.map((k) => [k, R.show[k]])) })); } catch (e) { /* a convenience only */ } }
   function loadHud() {
     try {
       const h = JSON.parse(localStorage.getItem("tm-hud") || "null");
       if (!h) return;
       if (typeof h.size === "number") R.hudSize = clamp(h.size, 0.4, 1.4);
       for (const k of HUD_KEYS) if (typeof h[k] === "boolean") R.show[k] = h[k];
+      if (typeof h.speak === "boolean") R.speak = h.speak;
     } catch (e) { /* ignore */ }
   }
   function syncHudUi() {
     const q = (s) => R.root.querySelector(s);
     q(".rp-hudsize").value = Math.round(R.hudSize * 100);
-    for (const [cls, k] of [["rp-timer", "timer"], ["rp-inputs", "inputs"], ["rp-mini", "mini"], ["rp-tower", "tower"], ["rp-pad", "pad"]]) q("." + cls).checked = !!R.show[k];
+    for (const [cls, k] of [["rp-timer", "timer"], ["rp-inputs", "inputs"], ["rp-mini", "mini"], ["rp-tower", "tower"], ["rp-pad", "pad"], ["rp-caps", "captions"]]) q("." + cls).checked = !!R.show[k];
+    q(".rp-speak").checked = !!R.speak;
   }
 
   // ------------------------------------------------------------------ DOM
@@ -1142,9 +1208,11 @@ const Replay3D = (() => {
           <div class="rp-checks">
             ${chk("rp-timer", "Timer and gaps", true)}${chk("rp-tower", "Timing tower", true)}
             ${chk("rp-inputs", "Inputs", true)}${chk("rp-pad", "Arrow input display", true)}
-            ${chk("rp-mini", "Mini-map", true)}
+            ${chk("rp-mini", "Mini-map", true)}${chk("rp-caps", "Coach captions", true)}
+            ${chk("rp-speak", "Read captions aloud", false)}
           </div>
         </section>
+        <section><h3>Coach notes <small>click one to watch it</small></h3><div class="rp-notes"></div></section>
         <section><h3>Air <small>jumps, replay them in slow motion</small></h3><div class="rp-airlist"></div></section>
         <section><h3>Shots <small>camera cuts</small></h3>
           <label class="tv-check rp-cutsrow"><input type="checkbox" class="rp-cuts" checked /> Use the cuts <small>(turns off when you take over the camera)</small></label>
@@ -1182,6 +1250,8 @@ const Replay3D = (() => {
     tog(".rp-fxon", (v) => (R.show.fx = v)); tog(".rp-trails", (v) => (R.show.trails = v)); tog(".rp-arcs", (v) => (R.show.arcs = v));
     tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => { R.show.pad = v; saveHud(); }); tog(".rp-tower", (v) => { R.show.tower = v; saveHud(); });
     tog(".rp-timer", (v) => { R.show.timer = v; saveHud(); }); tog(".rp-inputs", (v) => { R.show.inputs = v; saveHud(); }); tog(".rp-mini", (v) => { R.show.mini = v; saveHud(); });
+    tog(".rp-caps", (v) => { R.show.captions = v; saveHud(); });
+    q(".rp-speak").addEventListener("change", (e) => { R.speak = e.target.checked; if (!R.speak && window.speechSynthesis) window.speechSynthesis.cancel(); saveHud(); });
     q(".rp-hudsize").addEventListener("input", (e) => { R.hudSize = +e.target.value / 100; saveHud(); render(0, true); });
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
     q(".rp-cuts").addEventListener("change", (e) => { R.cuts = e.target.checked; R.shotIdx = -2; checkShots(true); });
@@ -1291,6 +1361,7 @@ const Replay3D = (() => {
       } else R.cps = [];
       R.key = key; R.loaded = true; R.t = 0; R.prevT = 0; R.playing = false; R.cam = { ...DEFAULT_CAM }; R.rate = 1; R.shotIdx = -1; R.clip = null; R.cuts = true;
       loadShots(); loadHud(); syncHudUi();
+      R.captions = Captions.build(R.primary); R.spoken = new Set(); renderNotes();
       root.querySelector(".rp-loading").hidden = true;
       renderShots(); renderAir(); resize();
       seek(0);
@@ -1304,6 +1375,7 @@ const Replay3D = (() => {
     render(primary) { R.primary = primary; R.key = null; R.loaded = false; if (R.visible) ensure(); },
     async show() { R.visible = true; await ensure(); if (R.loaded) { R.last = performance.now(); resize(); } },
     hide() { R.visible = false; if (R.playing) pause(); stopRecord(); },
+    captions: () => R.captions.map((k) => [Math.round(k.t0), k.title, k.tag]),
     state: () => ({ particles: gl.parts ? Array.from(gl.parts.ttl).filter((x) => x > 0).length : 0, t: R.t, rate: R.rate, mode: R.cam.mode, loaded: R.loaded, shots: R.shots.length, clipBytes: R.lastClipBytes || 0, rec: !!R.rec, flights: R.flights.you.length }),
     // for checking: does the car turn the way the recorded steering says? (positive steer is right, a clockwise turn seen from above)
     probe() {
