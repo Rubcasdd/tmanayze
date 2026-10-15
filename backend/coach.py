@@ -348,7 +348,7 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
             "it as a pattern. Never invent a steering value that is not in the blueprint."
         )
         parts.append(
-            "- `## How to do it`: one short lesson for each entry in LESSONS (and one for any trick in WHAT THE FASTEST GHOSTS DO or the "
+            "- `## How to do it`: a full lesson (a short paragraph plus the numbered steps, not a one-liner) for each entry in LESSONS (and one for any trick in WHAT THE FASTEST GHOSTS DO or the "
             "SKILLS list that the player does not do): what it is in plain words, why it matters on THIS map, the numbered steps with the "
             "player's numbers next to the references' numbers, what it should feel or look like, and one drill to repeat. Keep the "
             "numbers; do not add steering values, speeds or distances that are not in the data. Be honest where the data cannot show "
