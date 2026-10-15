@@ -271,13 +271,15 @@ def figures_text(corners: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _format_instructions(insights: dict | None, previous: dict | None, telemetry: bool, depth: str, figures: bool = False) -> str:
+def _format_instructions(insights: dict | None, previous: dict | None, telemetry: bool, depth: str, figures: bool = False, plan: bool = False) -> str:
     cfg = depth_config(depth)
     has_world = bool(insights and (insights.get("player_world_position") or insights.get("player_zone") or insights.get("world_leaderboard_top")))
 
     headings = ["Top focus areas"]
     if telemetry:
         headings.append("Steering comparison")
+        if plan:
+            headings.append("Steering plan")
         headings.append("Techniques to try")
     headings.append("Map character")
     if telemetry and cfg["walkthrough"]:
@@ -324,6 +326,16 @@ def _format_instructions(insights: dict | None, previous: dict | None, telemetry
         parts.append(
             "- `## Steering comparison`: how the player's steering differs from the ghost's overall and in the key sections "
             "(amount, full-lock time, reversals, smoothness, input device) and what it costs or gains."
+        )
+    if telemetry and plan:
+        parts.append(
+            "- `## Steering plan`: built ONLY from the MAP BLUEPRINT above. Walk the zones where the player differs, biggest first "
+            "(five to eight of them), one bullet each: the distance range, what the references do with the wheel (direction and the "
+            "value, or the hold time for a keyboard-style reference), what the player did, where each starts steering, and the one "
+            "change to make, using the blueprint's numbers exactly (never round them into 'a bit less'). If the references disagree "
+            "(spread of 0.2 or more) say several lines work and give the median as the safe one. Finish with two sentences on the "
+            "rhythm of the lap (where the references hold left, where right, where the wheel is near centre) so the player can learn "
+            "it as a pattern. Never invent a steering value that is not in the blueprint."
         )
     if telemetry:
         parts.append(
@@ -374,6 +386,8 @@ def build_user_prompt(
     surface_text: str = "",
     inputs_text: str = "",
     figures: str = "",
+    blueprint: str = "",
+    plan: bool = False,
 ) -> str:
     subject_label, reference_label = _clean(subject_label), _clean(reference_label)
     out: list[str] = []
@@ -438,6 +452,8 @@ def build_user_prompt(
         out.append("\n" + surface_text)
     if inputs_text:
         out.append("\n" + inputs_text)
+    if blueprint:
+        out.append("\n" + blueprint)
     if figures:
         out.append("\n" + figures)
 
@@ -477,7 +493,7 @@ def build_user_prompt(
                 f"{p['subject_steer']:+.2f} vs {p['reference_steer']:+.2f}"
             )
 
-    out.append(_format_instructions(insights, previous, True, depth, figures=bool(figures)))
+    out.append(_format_instructions(insights, previous, True, depth, figures=bool(figures), plan=plan and bool(blueprint)))
     return "\n".join(out)
 
 

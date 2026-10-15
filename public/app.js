@@ -1066,6 +1066,7 @@ function renderComparison() {
     renderLap(data, chartable);
     renderSections(data, chartable);
     renderCorners(data);
+    renderPlan(primary);
   } else {
     $("#sections-grid").innerHTML = "";
     $("#corner-tbody").innerHTML = "";
@@ -2150,7 +2151,7 @@ function wireBoard() {
 // ============================================================ coach (AI) report
 
 const REPORT_SECTIONS = [
-  "Top focus areas", "Steering comparison", "Techniques to try", "Map character", "Section-by-section", "Practice plan",
+  "Top focus areas", "Steering comparison", "Steering plan", "Techniques to try", "Map character", "Section-by-section", "Practice plan",
   "Skill assessment", "Where they stand", "Progress since last time",
 ];
 
@@ -2297,8 +2298,10 @@ async function handleAnalyze() {
       id: r.id, map_uid: r.map_uid, map_name: r.map_name, player_nickname: r.player_nickname,
       race_time_ms: r.race_time_ms, world_position: r.world_position ?? null, checkpoints: r.checkpoints || null, samples: r.samples || [],
     });
+    const otherIds = [...state.againstIds].filter((id) => id !== refId).slice(0, 2);
+    const others = otherIds.length ? (await Store.getRuns(otherIds)).filter(Boolean).map(strip) : [];
     const data = await postJson("/api/analyze", {
-      subject: strip(subject), reference: strip(reference),
+      subject: strip(subject), reference: strip(reference), others,
       account_id: state.player ? state.player.account_id : null, history, previous,
       depth: $("#depth-select").value,
     });

@@ -300,6 +300,19 @@
 
         <!-- CORNERS -->
         <div class="view" data-view="corners" hidden>
+          <div id="plan-area" hidden>
+            <div class="block-head">
+              <h2 class="section-title">Steering plan</h2>
+              <span class="hint" id="plan-hint"></span>
+            </div>
+            <div class="plan-grid">
+              <div class="plot"><div class="plot-head"><h3>Steering: the fastest runs and you</h3><span class="hint">− left, + right. The band is where the references are, the dashed line their median.</span></div>
+                <div class="plot-box" style="height:300px"><canvas id="plan-chart"></canvas></div></div>
+              <div><h3 class="plan-h">Where your wheel differs</h3><div id="plan-zones" class="plan-zones"></div></div>
+            </div>
+            <details class="plan-script"><summary>The references' steering script, metre by metre</summary><div id="plan-script-body"></div></details>
+          </div>
+
           <div class="block-head">
             <h2 class="section-title">Corner by corner</h2>
             <span class="hint" id="corner-breakdown-sub"></span>

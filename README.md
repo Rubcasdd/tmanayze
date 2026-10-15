@@ -42,6 +42,12 @@ coach that works from those measurements.
   (blue), numbered turn-in / apex / throttle points, your entry, slowest and exit speeds against the ghost's, where each of
   you braked, the ground under it, and any trick in or around it (jump line, landing, wall ride, air-brake spot). Click the
   picture for the full figure, or use the buttons to show it on the graphs or make a share card.
+- **Steering plan (made for bobsleigh and ice maps, works on any):** the steering of the reference ghosts, combined and
+  aligned to your distance. The Corners tab shows their median and spread against your wheel, a list of the stretches where
+  you differ most with exact numbers ("700-780 m: the references steer right 0.48, you 0.17: add to about 0.48; they start at
+  612 m, you at 625 m"), and the references' steering script metre by metre. A keyboard-style reference is given as holds in
+  seconds. The coach gets the same blueprint (with up to two more selected ghosts), a deeper bobsleigh/ice knowledge base,
+  every corner's input script on those maps, and a `Steering plan` section that must use only the blueprint's numbers.
 - **Checkpoints:** the checkpoint times the game stored in each replay or ghost give a split table (your time, the ghost's,
   the gap at each checkpoint and over each stretch), checkpoint flags with the gap on the track, and sections that run
   between checkpoints ("CP 2 → CP 3") instead of equal slices. The coach gets the splits too. The replay keeps recording
@@ -204,6 +210,7 @@ them), and try it: find a map → import a ghost → compare → **Analyze with 
   turn them into a surface label for every point of the lap. It is an estimate: the labels come from
   the nearest blocks, so custom or very unusual blocks may show as "unknown".
 - `public/lap.js` — the lap-at-a-glance strip, the ground card and the ground strip on the charts.
+- `backend/blueprint.py` — the references' steering blueprint and the zones where yours differs.
 - `backend/checkpoints.py` — splits and checkpoint-based sections from the times stored in the replay.
 - `backend/driving.py` — landings, wall-rides, input smoothness and what the top ghosts share. `shares.py` — the 30-day store
   behind challenge links. `public/share.js` — the share-card images.
