@@ -41,8 +41,9 @@ def _up(s: dict) -> tuple[float, float, float]:
 
 # ------------------------------------------------------------------ landings
 
-def landings(samples: list[dict], dist: list[float], fl: list[dict]) -> list[dict]:
-    """One entry per flight: how the car came down."""
+def landings(samples: list[dict], dist: list[float], fl: list[dict], bob: bool = False) -> list[dict]:
+    """One entry per flight: how the car came down. On a bobsleigh/ice map a sideways landing is usually right (the car comes
+    down onto a bank), so there the verdict follows the speed it kept and the nose angle, not the sideways tilt."""
     if not has_orientation(samples):
         return []
     n = len(samples)
@@ -59,12 +60,14 @@ def landings(samples: list[dict], dist: list[float], fl: list[dict]) -> list[dic
         tilt = _angle(_up(touch), _up(settled))
         spin = max((_angle(_up(samples[a]), _up(samples[i])) for i in range(a, min(n, b + 1))), default=0.0)
         lost = f["speed_in"] - samples[min(n - 1, b + 7)]["speed"]
-        clean = abs(nose_down) <= CLEAN_PITCH_DEG and tilt <= CLEAN_TILT_DEG
+        nose_ok = abs(nose_down) <= CLEAN_PITCH_DEG
+        sideways_ok = bool(bob and nose_ok and tilt > CLEAN_TILT_DEG and lost < 12)
+        clean = nose_ok and (tilt <= CLEAN_TILT_DEG or sideways_ok)
         entry = {
             "dist_m": round(dist[b], 1), "x": round(touch["x"], 1), "y": round(touch["y"], 1), "z": round(touch["z"], 1),
             "duration_s": round(f["duration_s"], 2), "height_m": round(f["height_m"], 1), "length_m": round(f["length_m"], 1),
             "nose_down_deg": round(nose_down, 1), "tilt_deg": round(tilt, 1), "speed_lost": round(lost, 1),
-            "spin_deg": round(spin, 0), "flip": spin >= FLIP_DEG, "clean": clean,
+            "spin_deg": round(spin, 0), "flip": spin >= FLIP_DEG, "clean": clean, "sideways_ok": sideways_ok,
         }
         entry["text"] = landing_word(entry)
         out.append(entry)
@@ -74,6 +77,8 @@ def landings(samples: list[dict], dist: list[float], fl: list[dict]) -> list[dic
 def landing_word(land: dict) -> str:
     """The landing in plain words, for the track view and the coach."""
     nd = land["nose_down_deg"]
+    if land.get("sideways_ok"):
+        return f"landed sideways onto the bank ({land['tilt_deg']:.0f}° tilt, right for a bob track) and lost {max(0.0, land['speed_lost']):.0f} km/h"
     if abs(nd) <= CLEAN_PITCH_DEG and land["tilt_deg"] <= CLEAN_TILT_DEG:
         angle = "landed flat"
     elif nd > 0:
@@ -160,7 +165,7 @@ def analyze(samples: list[dict], bob: bool = False) -> dict:
     air = signals._in_flight(len(samples), fl)
     return {
         "oriented": has_orientation(samples),
-        "landings": landings(samples, dist, fl),
+        "landings": landings(samples, dist, fl, bob),
         "inverted": inverted(samples, dist, air, bob),
         "smoothness": smoothness(samples),
     }
@@ -171,6 +176,8 @@ def driving_text(subject: dict, reference: dict) -> str:
     lines: list[str] = []
     if subject["oriented"] and subject["landings"]:
         lines.append("LANDINGS (from the car's recorded orientation; nose-down is measured against the slope it lands on):")
+        if any(land.get("sideways_ok") for land in subject["landings"]):
+            lines.append("- NOTE: on a bobsleigh track landing sideways onto the bank is normal and often exactly right; judge a landing by the speed it kept and by whether the ghost lands the same way, never by the sideways tilt alone.")
         for land in subject["landings"]:
             mate = min(reference["landings"], key=lambda g: abs(g["dist_m"] - land["dist_m"]), default=None)
             ghost = f"; ghost there: {landing_word(mate)}" if mate and abs(mate["dist_m"] - land["dist_m"]) < 60 else ""

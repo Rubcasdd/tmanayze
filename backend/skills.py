@@ -388,7 +388,7 @@ def detect(samples: list[dict], labels: list[str] | None = None, bob: bool = Fal
         events += _slides(samples, dist, air, slip, labels)
         events += _nose_slides(samples, dist, air)
         events += _quantum_slides(samples, dist, air, slip, labels)
-        lands = driving.landings(samples, dist, fl)
+        lands = driving.landings(samples, dist, fl, bob)
         events += _from_flights(samples, dist, fl, lands)
         events += _surfaces(samples, dist, air, bob)
     else:  # without orientation the jumps and air-brakes still show

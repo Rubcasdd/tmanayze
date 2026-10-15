@@ -31,7 +31,7 @@ const Replay3D = (() => {
     primary: null, key: null, loaded: false, loading: false, visible: false, THREE: null,
     t: 0, tEnd: 0, rate: 1, playing: false, last: 0, raf: 0, prevT: 0, clip: null,
     cam: { ...DEFAULT_CAM }, shots: [], shotIdx: -1, cuts: true,
-    show: { ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true },
+    show: { ghost: true, trails: true, gates: true, fx: true, arcs: true, shake: true, bars: false, shadows: true, pad: true },
     rec: null, root: null, shake: 0, flights: { you: [], ghost: [] }, landings: [],
   };
 
@@ -671,7 +671,55 @@ const Replay3D = (() => {
     c.fillStyle = fg; c.font = font; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(text, x + w / 2, y + h / 2 + 1);
   }
 
+  // the arrow pad, like the game's input display: left and right arrows fill with how far the wheel is turned,
+  // up fills with the throttle and down with the brake, and the exact percentages are written underneath
+  function drawPad(c, x, y, v, label, color) {
+    const w = 206, h = 116;
+    c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
+    c.fillStyle = color; c.fillRect(x, y, 3, h);
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    c.fillStyle = "#b4bfd6"; c.font = `700 11px Barlow, sans-serif`; c.fillText(label, x + 12, y + 16);
+    const L = clamp(-v.steer, 0, 1), Rt = clamp(v.steer, 0, 1), up = clamp(v.gas, 0, 1), dn = clamp(v.brake, 0, 1);
+    const px = x + 14, py = y + 24, tw = 38, th = 46, bw = 22, bh = 22;
+    const base = "rgba(78,80,88,0.78)", line = "rgba(255,255,255,0.95)";
+    // left arrow: tip on the left, base on the right; it fills from the base outwards
+    const lx0 = px, lx1 = px + tw, cy = py + th / 2;
+    c.beginPath(); c.moveTo(lx0, cy); c.lineTo(lx1, py); c.lineTo(lx1, py + th); c.closePath();
+    c.fillStyle = base; c.fill();
+    if (L > 0.001) { c.save(); c.clip(); c.fillStyle = color; c.fillRect(lx1 - tw * L, py, tw * L + 1, th); c.restore(); }
+    c.lineWidth = 2; c.strokeStyle = line; c.lineJoin = "round"; c.stroke();
+    // right arrow: base on the left, tip on the right
+    const rx0 = px + tw + bw + 10, rx1 = rx0 + tw;
+    c.beginPath(); c.moveTo(rx1, cy); c.lineTo(rx0, py); c.lineTo(rx0, py + th); c.closePath();
+    c.fillStyle = base; c.fill();
+    if (Rt > 0.001) { c.save(); c.clip(); c.fillStyle = color; c.fillRect(rx0 - 1, py, tw * Rt + 1, th); c.restore(); }
+    c.lineWidth = 2; c.strokeStyle = line; c.stroke();
+    // up (throttle) and down (brake)
+    const bx = px + tw + 5;
+    const box = (by, k, col, up_) => {
+      c.beginPath(); c.roundRect(bx, by, bw, bh, 4); c.fillStyle = base; c.fill();
+      if (k > 0.001) { c.save(); c.clip(); c.fillStyle = col; const fh = bh * k; c.fillRect(bx, up_ ? by + bh - fh : by, bw, fh); c.restore(); }
+      c.lineWidth = 2; c.strokeStyle = line; c.beginPath(); c.roundRect(bx, by, bw, bh, 4); c.stroke();
+      c.lineWidth = 2; c.strokeStyle = "rgba(255,255,255,0.9)"; c.lineCap = "round"; c.beginPath();
+      const mx = bx + bw / 2, my = by + bh / 2;
+      if (up_) { c.moveTo(mx - 5, my + 2); c.lineTo(mx, my - 3); c.lineTo(mx + 5, my + 2); } else { c.moveTo(mx - 5, my - 2); c.lineTo(mx, my + 3); c.lineTo(mx + 5, my - 2); }
+      c.stroke();
+    };
+    box(py, up, "#2fe3a2", true); box(py + th - bh, dn, "#ff5a73", false);
+    // the numbers
+    const pct = (k) => `${Math.round(k * 100)}%`;
+    c.font = `700 15px "IBM Plex Mono", monospace`; c.fillStyle = "#eef2fb";
+    c.fillText(`STEER ${v.steer < -0.005 ? "L " + pct(L) : v.steer > 0.005 ? "R " + pct(Rt) : "0%"}`, x + 14, y + 92);
+    c.font = `600 12px "IBM Plex Mono", monospace`;
+    c.fillStyle = "#2fe3a2"; c.fillText(`GAS ${pct(up)}`, x + 14, y + 108);
+    c.fillStyle = "#ff5a73"; c.fillText(`BRAKE ${pct(dn)}`, x + 88, y + 108);
+    c.fillStyle = "#eef2fb"; c.font = `700 34px "Barlow Condensed", "Arial Narrow", sans-serif`; c.textAlign = "right";
+    c.fillText(String(Math.round(v.speed)), x + w - 10, y + 64);
+    c.fillStyle = "#7d8aa6"; c.font = `600 10px Barlow, sans-serif`; c.fillText("km/h", x + w - 10, y + 79);
+  }
+
   function drawInputs(c, x, y, v, label, color) {
+    if (R.show.pad) { drawPad(c, x, y - 20, v, label, color); return; }
     const w = 170, h = 96;
     c.fillStyle = "rgba(8,12,22,0.62)"; c.fillRect(x, y, w, h);
     c.fillStyle = color; c.fillRect(x, y, 3, h);
@@ -760,24 +808,24 @@ const Replay3D = (() => {
     const fl = inFlight(R.flights.you, R.t);
     if (fl) {
       const el = (R.t - fl.t_ms) / 1000;
-      pill(c, w / 2 - 90, h * 0.62, 180, 40, "rgba(10,60,80,0.82)", "#9ff0ff", `AIR  ${el.toFixed(2)} s`, `800 26px "Barlow Condensed", sans-serif`);
-      c.fillStyle = "rgba(8,12,22,0.7)"; c.fillRect(w / 2 - 90, h * 0.62 + 42, 180, 20);
+      pill(c, w / 2 - 90, h * 0.5, 180, 40, "rgba(10,60,80,0.82)", "#9ff0ff", `AIR  ${el.toFixed(2)} s`, `800 26px "Barlow Condensed", sans-serif`);
+      c.fillStyle = "rgba(8,12,22,0.7)"; c.fillRect(w / 2 - 90, h * 0.5 + 42, 180, 20);
       c.fillStyle = "#b4bfd6"; c.font = `600 12px Barlow, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
-      c.fillText(`${fl.length_m.toFixed(0)} m long · ${fl.height_m.toFixed(1)} m high${fl.brake_s > 0 ? " · air-brake" : ""}`, w / 2, h * 0.62 + 53);
+      c.fillText(`${fl.length_m.toFixed(0)} m long · ${fl.height_m.toFixed(1)} m high${fl.brake_s > 0 ? " · air-brake" : ""}`, w / 2, h * 0.5 + 53);
     } else {
       const last = R.flights.you.filter((f) => R.t >= f.end_t_ms && R.t < f.end_t_ms + 2200 * clamp(R.rate, 0.2, 1)).pop();
       if (last) {
         const l = landingFor(last), good = l ? l.clean && l.speed_lost < 12 : true;
-        pill(c, w / 2 - 130, h * 0.62, 260, 36, good ? "rgba(20,90,60,0.85)" : "rgba(130,30,45,0.85)", "#fff", good ? "CLEAN LANDING" : "ROUGH LANDING", `800 24px "Barlow Condensed", sans-serif`);
-        c.fillStyle = "rgba(8,12,22,0.7)"; c.fillRect(w / 2 - 130, h * 0.62 + 38, 260, 20);
+        pill(c, w / 2 - 130, h * 0.5, 260, 36, good ? "rgba(20,90,60,0.85)" : "rgba(130,30,45,0.85)", "#fff", good ? "CLEAN LANDING" : "ROUGH LANDING", `800 24px "Barlow Condensed", sans-serif`);
+        c.fillStyle = "rgba(8,12,22,0.7)"; c.fillRect(w / 2 - Math.min(w / 2 - 8, 240), h * 0.5 + 38, Math.min(w - 16, 480), 20);
         c.fillStyle = "#d6dcef"; c.font = `600 12px Barlow, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
-        c.fillText(l ? l.text.replace(/^landed /, "Landed ") : `${(last.speed_in - last.speed_out).toFixed(0)} km/h lost`, w / 2, h * 0.62 + 49);
+        c.fillText(l ? l.text.replace(/^landed /, "Landed ") : `${(last.speed_in - last.speed_out).toFixed(0)} km/h lost`, w / 2, h * 0.5 + 49);
       }
     }
     // a slide badge
-    if (R.slip && R.slip > 9 && !fl) { pill(c, 12, h - 148, 110, 28, "rgba(255,150,40,0.85)", "#1d1103", `DRIFT ${Math.round(R.slip)}°`, `800 17px "Barlow Condensed", sans-serif`); }
+    if (R.slip && R.slip > 9 && !fl) { pill(c, 12, h - (R.show.pad ? 168 : 148), 110, 28, "rgba(255,150,40,0.85)", "#1d1103", `DRIFT ${Math.round(R.slip)}°`, `800 17px "Barlow Condensed", sans-serif`); }
     drawInputs(c, 12, h - 108, gl.cy, "YOU", "#eef2fb");
-    if (R.show.ghost) drawInputs(c, w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
+    if (R.show.ghost) drawInputs(c, R.show.pad ? w - 218 : w - 182, h - 108, gl.cg, "GHOST", "#5b8def");
     if (R.show.bars) { c.fillStyle = "#000"; c.fillRect(0, 0, w, h * 0.1); c.fillRect(0, h * 0.9, w, h * 0.1); }
   }
 
@@ -1019,7 +1067,7 @@ const Replay3D = (() => {
             ${chk("rp-ghostvis", "Ghost", true)}${chk("rp-fxon", "Spray, sparks, streaks", true)}
             ${chk("rp-trails", "Trails", true)}${chk("rp-arcs", "Jump arcs", true)}
             ${chk("rp-gates", "Checkpoints", true)}${chk("rp-shadows", "Shadows", true)}
-            ${chk("rp-bars", "Cinematic bars", false)}
+            ${chk("rp-bars", "Cinematic bars", false)}${chk("rp-pad", "Arrow input display", true)}
           </div>
           <button type="button" class="btn quiet rp-drop" title="Pin a trackside camera here so the cars drive past it">Pin a trackside camera here</button>
         </section>
@@ -1058,7 +1106,7 @@ const Replay3D = (() => {
     const tog = (cls, fn) => q(cls).addEventListener("change", (e) => { fn(e.target.checked); render(0, true); });
     tog(".rp-sfov", (v) => (R.cam.speedFov = v)); tog(".rp-shake", (v) => (R.show.shake = v)); tog(".rp-ghostvis", (v) => (R.show.ghost = v));
     tog(".rp-fxon", (v) => (R.show.fx = v)); tog(".rp-trails", (v) => (R.show.trails = v)); tog(".rp-arcs", (v) => (R.show.arcs = v));
-    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v));
+    tog(".rp-gates", (v) => (R.show.gates = v)); tog(".rp-shadows", (v) => (R.show.shadows = v)); tog(".rp-bars", (v) => (R.show.bars = v)); tog(".rp-pad", (v) => (R.show.pad = v));
     q(".rp-drop").addEventListener("click", () => { cutsOff(); R.cam.mode = "side"; R.cam.fixed = null; R.cam.pinned = true; render(0, true); });
     q(".rp-cuts").addEventListener("change", (e) => { R.cuts = e.target.checked; R.shotIdx = -2; checkShots(true); });
     q(".rp-addshot").addEventListener("click", addShot);
