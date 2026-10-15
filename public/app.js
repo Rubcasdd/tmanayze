@@ -1227,7 +1227,7 @@ function renderMoves(primary) {
         const ghost = mate && Math.abs(mate.dist_m - l.dist_m) < 60 ? ` The ghost ${mate.text}.` : "";
         cards.push({ icon: l.flip ? "⟳" : "⤓", title: l.flip ? "Flip" : "Landing", at: l.dist_m, tag: `${l.duration_s.toFixed(1)} s air`, text: `You ${l.text}.${ghost}`, cls: l.clean && l.speed_lost < 12 ? "good" : "bad" });
       }
-      for (const w of mine.inverted) cards.push({ icon: "◐", title: w.kind === "upside down" ? "Upside down" : "Wall ride", at: w.dist_m, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m`, text: `You ${w.text}.`, cls: "" });
+      for (const w of mine.inverted) cards.push({ icon: "◐", title: w.kind === "upside down" ? "Upside down" : w.kind === "bank ride" ? "Bob bank" : "Wall ride", at: w.dist_m, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m`, text: `You ${w.text}.`, cls: "" });
     }
   }
   cards.sort((a, b) => a.at - b.at);

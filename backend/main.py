@@ -151,6 +151,14 @@ class AnalyzeRequest(BaseModel):
     others: list[RunPayload] = Field(default_factory=list, max_length=3)  # more ghosts: the blueprint uses all of them
 
 
+def _is_bob(tags: list[str] | None, share: dict | None) -> bool:
+    """A bobsleigh or ice map: the tilted stretches there are the track's banked turns, not wall rides."""
+    try:
+        return any(s in ("bobsleigh", "ice") for s, _ in techniques.detect_styles(tags or [], None, share or {}))
+    except Exception:
+        return False
+
+
 def _make_playbook(subject: dict, reference: dict, corners: list[dict], points: list[dict], lm, bp: dict | None,
                    tags: list[str], subject_driving: dict | None, subject_flights: list[dict], ref_flights: list[dict]) -> list[dict]:
     """The prepared tricks for this map, with where to use them. Never raises: a card list is only ever an extra."""
@@ -359,12 +367,17 @@ def compare(body: CompareRequest):
         cp_info = None
     cp_bounds = checkpoints_mod.section_bounds(cp_info)
     try:
-        subject_driving = driving_mod.analyze(subject.get("samples") or [])
+        _lab = _ground_labels(subject)
+        bob_map = _is_bob(body.tags, surface_mod.summarize(_lab) if _lab else {})
+    except Exception:
+        bob_map = False
+    try:
+        subject_driving = driving_mod.analyze(subject.get("samples") or [], bob_map)
     except Exception:  # landings, wall-rides and smoothness are extras too
         subject_driving = None
     try:  # which driving skills the run uses, found once and compared with each reference below
         subject_samples = subject.get("samples") or []
-        subject_skills = skills_mod.detect(subject_samples, _ground_labels(subject))
+        subject_skills = skills_mod.detect(subject_samples, _ground_labels(subject), bob_map)
         subject_dist = signals_mod._cumulative_distance(subject_samples) if len(subject_samples) >= 20 else []
     except Exception:
         subject_skills = None
@@ -382,11 +395,11 @@ def compare(body: CompareRequest):
         except Exception:
             cp_rows = []
         try:
-            ref_driving = driving_mod.analyze(reference.get("samples") or [])
+            ref_driving = driving_mod.analyze(reference.get("samples") or [], bob_map)
         except Exception:
             ref_driving = None
         try:
-            skills_report = skills_mod.compare(subject_skills, skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), subject_samples, subject_dist) if subject_skills else None
+            skills_report = skills_mod.compare(subject_skills, skills_mod.detect(reference.get("samples") or [], _ground_labels(reference), bob_map), subject_samples, subject_dist) if subject_skills else None
         except Exception:
             skills_report = None
         points_by_ref[ref.id] = result.points
@@ -572,9 +585,10 @@ def analyze(
                     signals_block += "\n" + checkpoints_mod.splits_text(checkpoints_mod.rows(cp_info, reference.get("checkpoints")))
             except Exception:
                 pass
+            bob_map = _is_bob(((insights or {}).get("map") or {}).get("tags") or [], share)
             try:
-                s_drive = driving_mod.analyze(samples)
-                g_drive = driving_mod.analyze(reference.get("samples") or [])
+                s_drive = driving_mod.analyze(samples, bob_map)
+                g_drive = driving_mod.analyze(reference.get("samples") or [], bob_map)
                 extra = driving_mod.driving_text(s_drive, g_drive)
                 if extra:
                     signals_block += "\n" + extra
@@ -583,7 +597,7 @@ def analyze(
                 pass
             try:
                 found_skills = skills_mod.skills_text(skills_mod.compare(
-                    skills_mod.detect(samples, labels), skills_mod.detect(reference.get("samples") or [], _ground_labels(reference)), samples, dist))
+                    skills_mod.detect(samples, labels, bob_map), skills_mod.detect(reference.get("samples") or [], _ground_labels(reference), bob_map), samples, dist))
                 if found_skills:
                     signals_block += "\n" + found_skills
             except Exception:
@@ -607,7 +621,7 @@ def analyze(
             try:
                 cards = _make_playbook(
                     subject, reference, result.corners, result.points, lm, blueprint_data, [t for t in (((insights or {}).get("map") or {}).get("tags") or [])],
-                    driving_mod.analyze(samples), signals_mod.public_flights(samples), signals_mod.public_flights(reference.get("samples") or []))
+                    driving_mod.analyze(samples, bob_map), signals_mod.public_flights(samples), signals_mod.public_flights(reference.get("samples") or []))
                 pb = playbook_mod.playbook_text(cards)
                 how_to_cards = cards
                 if pb:
