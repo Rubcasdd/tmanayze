@@ -74,7 +74,7 @@ function collectTricks(primary) {
       out.push({ at: l.dist_m, from: l.dist_m - 25, to: l.dist_m + 25, kind: l.flip ? "flip" : "landing", ...st, text: `You ${l.text}.`, tag: `${l.duration_s.toFixed(1)} s air` });
     }
     for (const w of mine.inverted) {
-      out.push({ at: w.dist_m, from: w.start_m, to: w.end_m, kind: "wall", ...TRICK_STYLE.wall, title: w.kind === "upside down" ? "Upside down" : "Wall ride", text: `You ${w.text}.`, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m` });
+      out.push({ at: w.dist_m, from: w.start_m, to: w.end_m, kind: "wall", ...TRICK_STYLE.wall, title: w.kind === "upside down" ? "Upside down" : w.kind === "bank ride" ? "Bob bank" : "Wall ride", text: `You ${w.text}.`, tag: `${w.start_m.toFixed(0)}–${w.end_m.toFixed(0)} m` });
     }
   }
   return out.sort((a, b) => a.at - b.at);

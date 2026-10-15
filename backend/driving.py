@@ -87,7 +87,9 @@ def landing_word(land: dict) -> str:
 
 # ------------------------------------------------------------------ wall-rides and inverted stretches
 
-def inverted(samples: list[dict], dist: list[float], air: list[bool]) -> list[dict]:
+def inverted(samples: list[dict], dist: list[float], air: list[bool], bob: bool = False) -> list[dict]:
+    """Stretches on a wall or ceiling. On a bobsleigh/ice map the tilted stretches are the banked turns of the track
+    itself, not a trick, so they are named "bank ride"."""
     if not has_orientation(samples):
         return []
     flags = [(not air[i]) and s["uy"] < WALL_UP_Y for i, s in enumerate(samples)]
@@ -98,10 +100,11 @@ def inverted(samples: list[dict], dist: list[float], air: list[bool]) -> list[di
             "start_m": round(dist[a], 1), "end_m": round(dist[b], 1), "dist_m": round((dist[a] + dist[b]) / 2, 1),
             "x": round(samples[(a + b) // 2]["x"], 1), "y": round(samples[(a + b) // 2]["y"], 1), "z": round(samples[(a + b) // 2]["z"], 1),
             "duration_s": round(signals._dt(samples, a, b) + 0.05, 2), "lowest_up_y": round(lowest, 2),
-            "kind": "upside down" if lowest < INVERTED_UP_Y else "wall ride",
+            "kind": "upside down" if lowest < INVERTED_UP_Y else ("bank ride" if bob else "wall ride"),
             "speed": round(sum(samples[i]["speed"] for i in range(a, b + 1)) / (b - a + 1), 0),
         }
-        entry["text"] = f"were {'upside down' if entry['kind'] == 'upside down' else 'on a wall'} for {entry['duration_s']:.1f}s at {entry['speed']:.0f} km/h"
+        what = {"upside down": "upside down", "bank ride": "riding the banked bob turn"}.get(entry["kind"], "on a wall")
+        entry["text"] = f"were {what} for {entry['duration_s']:.1f}s at {entry['speed']:.0f} km/h"
         out.append(entry)
     return out
 
@@ -148,8 +151,8 @@ def smoothness(samples: list[dict]) -> dict | None:
 
 # ------------------------------------------------------------------ one run, all of it
 
-def analyze(samples: list[dict]) -> dict:
-    """Landings, wall-rides and smoothness for one run (used for the player and for the ghost)."""
+def analyze(samples: list[dict], bob: bool = False) -> dict:
+    """Landings, wall-rides (bank rides on a bobsleigh map) and smoothness for one run (used for the player and for the ghost)."""
     if len(samples) < 20:
         return {"oriented": False, "landings": [], "inverted": [], "smoothness": None}
     dist = signals._cumulative_distance(samples)
@@ -158,7 +161,7 @@ def analyze(samples: list[dict]) -> dict:
     return {
         "oriented": has_orientation(samples),
         "landings": landings(samples, dist, fl),
-        "inverted": inverted(samples, dist, air),
+        "inverted": inverted(samples, dist, air, bob),
         "smoothness": smoothness(samples),
     }
 
@@ -173,7 +176,9 @@ def driving_text(subject: dict, reference: dict) -> str:
             ghost = f"; ghost there: {landing_word(mate)}" if mate and abs(mate["dist_m"] - land["dist_m"]) < 60 else ""
             lines.append(f"- at ~{land['dist_m']:.0f}m ({land['duration_s']:.1f}s in the air): player {landing_word(land)}{ghost}")
     if subject["oriented"] and subject["inverted"]:
-        lines.append("WALL-RIDES / UPSIDE-DOWN STRETCHES (player):")
+        banks = any(w["kind"] == "bank ride" for w in subject["inverted"])
+        lines.append("BANK RIDES (the banked turns of the bobsleigh track itself, not a trick; judge them by line and speed) / UPSIDE-DOWN STRETCHES (player):" if banks
+                     else "WALL-RIDES / UPSIDE-DOWN STRETCHES (player):")
         for w in subject["inverted"]:
             lines.append(f"- {w['kind']} from {w['start_m']:.0f}m to {w['end_m']:.0f}m ({w['duration_s']:.1f}s at {w['speed']:.0f} km/h)")
     s, g = subject.get("smoothness"), reference.get("smoothness")

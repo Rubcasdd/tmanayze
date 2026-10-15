@@ -103,7 +103,22 @@ def build(*, styles: list[str], corners: list[dict], corner_ground: dict[int, st
 
     # ---------------------------------------------------------------- walls
     wplaces = [_place(lm, w["start_m"], w["end_m"], f"{w['text']}") for w in walls]
-    cards.append(_card(
+    if icy and any(w.get("kind") == "bank ride" for w in walls):
+        cards.append(_card(
+            "bankride", "Riding the bank (bob turns)", "Ice and bobsleigh",
+            "On a bobsleigh track the banked walls are the road, not a trick: each bob turn is a bank you ride through, and the speed you carry out depends on the line you hold along it.",
+            ["Come into the bank with the wheel already set, so the car climbs it without a late correction.",
+             "Pick one height on the bank and hold it: drifting up and down the bank is where the speed goes.",
+             "Do not brake or lift on the bank unless the ghost does at the same place: on ice there is nothing to gain.",
+             "Come off the bank straight and let the wheel come back to centre before the next input."],
+            "A smooth, steady ride along the bank with the speed holding flat or still rising.",
+            ["Steering up the bank in the middle of the turn: the car climbs, then drops back and loses speed.",
+             "Correcting the wheel several times on the bank instead of setting the angle once.",
+             "Coming off the bank crooked, which costs the straight after it."],
+            "Ride the first bank below again with one aim: set the wheel once going in and hold it to the exit, then compare your speed coming out with the ghost's." if wplaces else "Nothing to drill here.",
+            wplaces, bool(wplaces)))
+    else:
+        cards.append(_card(
         "wallride", "Wall rides", "Walls and banks",
         "A wall or steep bank is a turn: the straightest line along it keeps the speed.",
         ["Approach it at the angle that lets the car climb without steering up the wall.",

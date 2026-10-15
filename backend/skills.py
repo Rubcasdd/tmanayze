@@ -63,6 +63,9 @@ CATALOGUE: list[dict] = [
     {"id": "wallride", "name": "Wall ride", "glyph": "◐", "group": "Surfaces", "more_is": "neutral",
      "what": "The car drives on a wall or steep bank (its roof tilted more than about 70° away from straight up) for at least 0.3 s.",
      "try": "Treat the wall as a turn and take the straightest line; steering up the wall slows the car."},
+    {"id": "bank_ride", "name": "Bank ride (bob turn)", "glyph": "◐", "group": "Surfaces", "more_is": "neutral",
+     "what": "On a bobsleigh or ice map: the car rides the banked wall of a bob turn (its roof tilted more than about 70° away from straight up) for at least 0.3 s. This is the track itself, not a trick.",
+     "try": "Pick one smooth line along the bank, set the angle early and hold it; the speed you carry out depends on how little you correct."},
     {"id": "upside_down", "name": "Upside down", "glyph": "◑", "group": "Surfaces", "more_is": "neutral",
      "what": "The car drives on a ceiling or inside a loop, with its roof pointing down.",
      "try": "Hold speed and a steady wheel through loops and ceilings."},
@@ -318,7 +321,7 @@ def _from_flights(samples, dist, fl, lands) -> list[dict]:
     return out
 
 
-def _surfaces(samples, dist, air) -> list[dict]:
+def _surfaces(samples, dist, air, bob: bool = False) -> list[dict]:
     flags = [(not air[i]) and s["uy"] < driving.WALL_UP_Y for i, s in enumerate(samples)]
     out = []
     for a, b in signals._runs(flags, int(WALL_MIN_S / 0.05), gap=2):
@@ -326,7 +329,7 @@ def _surfaces(samples, dist, air) -> list[dict]:
         seconds = (samples[b]["time_ms"] - samples[a]["time_ms"]) / 1000.0 + 0.05
         upside = lowest < driving.INVERTED_UP_Y
         out.append(_event(
-            "upside_down" if upside else "wallride", samples, dist, a, b,
+            "upside_down" if upside else ("bank_ride" if bob else "wallride"), samples, dist, a, b,
             info=f"{seconds:.1f} s at {sum(samples[i]['speed'] for i in range(a, b + 1)) / (b - a + 1):.0f} km/h",
             score=seconds,
         ))
@@ -368,7 +371,7 @@ def _impacts_and_boosts(samples, dist, air) -> list[dict]:
     return out
 
 
-def detect(samples: list[dict], labels: list[str] | None = None) -> dict:
+def detect(samples: list[dict], labels: list[str] | None = None, bob: bool = False) -> dict:
     """Every skill found in one run: {"events": [...], "metrics": {...}, "oriented": bool, "ground": bool}.
     `labels` is the ground under each sample (surface.py), when the map's blocks could be read."""
     if len(samples) < 40:
@@ -387,7 +390,7 @@ def detect(samples: list[dict], labels: list[str] | None = None) -> dict:
         events += _quantum_slides(samples, dist, air, slip, labels)
         lands = driving.landings(samples, dist, fl)
         events += _from_flights(samples, dist, fl, lands)
-        events += _surfaces(samples, dist, air)
+        events += _surfaces(samples, dist, air, bob)
     else:  # without orientation the jumps and air-brakes still show
         events += _from_flights(samples, dist, fl, [])
     events += _lifts(samples, dist, air)
