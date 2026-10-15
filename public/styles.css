@@ -935,3 +935,11 @@ input[type="text"], input[type="search"], input[type="password"], select { borde
 .rp-jump .btn { white-space: nowrap; padding: 4px 8px; font-size: 12px; }
 
 .rp-jump .mono { display: block; }
+
+.ck-pace { color: var(--ink-2); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.ck-split { display: grid; grid-template-columns: 1fr auto auto; align-items: center; }
+.ck-split i { font-style: normal; font-size: 11px; opacity: 0.9; }
+.ck-split i.loss { color: var(--loss); }
+.ck-split i.gain { color: var(--gain); }
+
+.ck-splitlist { grid-template-columns: 1fr; }
